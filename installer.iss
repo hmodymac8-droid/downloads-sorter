@@ -81,7 +81,10 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\Downloa
 
 [Run]
 #ifndef TestBuild
-Filename: "{app}\{#AppExe}"; Parameters: "--background"; Flags: nowait; Check: WantAutostart
+; The background process shows the tray icon. After a silent update it always comes
+; back as it was; in the wizard it starts with automatic sorting on if that was ticked.
+Filename: "{app}\{#AppExe}"; Parameters: "--background"; Flags: nowait; Check: WizardSilent
+Filename: "{app}\{#AppExe}"; Parameters: "--background --auto-on"; Flags: nowait; Check: TickedAutostart
 Filename: "{app}\{#AppExe}"; Flags: nowait; Check: ReopenRequested
 #endif
 Filename: "{app}\{#AppExe}"; Description: "{cm:OpenApp}"; Flags: nowait postinstall skipifsilent
@@ -116,6 +119,11 @@ begin
     Result := AutostartWasOn
   else
     Result := WizardIsTaskSelected('autostart');
+end;
+
+function TickedAutostart: Boolean;
+begin
+  Result := (not WizardSilent) and WizardIsTaskSelected('autostart');
 end;
 
 function ReopenRequested: Boolean;

@@ -14,11 +14,15 @@ from tkinter import filedialog, messagebox, ttk
 import booster
 import cleaner
 import duplicates
+import i18n
 import sort_downloads as core
 import theme
 import vault
 
-AFTER_RUN_LABELS = {"window": "Show a report window", "notify": "Only a tray notification"}
+# Before any window text exists: from here on, text given to widgets is shown in the chosen language.
+i18n.install(core.language(core.load_config()))
+AFTER_RUN_LABELS = {"window": i18n.tr("Show a report window"), "notify": i18n.tr("Only a tray notification")}
+LANGUAGES = {"": "Automatic", "en": "English", "ar": "العربية"}
 
 
 def format_size(size: int) -> str:
@@ -267,7 +271,7 @@ class App(tk.Tk):
         self.pages.columnconfigure(0, weight=1)
         self.page_frames = {}
         for key, glyph, title, build in (
-            ("preview", "", "Preview", self.build_preview_tab),
+            ("preview", "", "Sorter", self.build_preview_tab),
             ("duplicates", "", "Duplicates", self.build_duplicates_tab),
             ("cleaner", "\uE74D", "Cleaner", self.build_cleaner_tab),
             ("booster", "\uE945", "Booster", self.build_booster_tab),
@@ -1681,7 +1685,9 @@ class App(tk.Tk):
         ttk.Button(top, text="Refresh", command=self.refresh_history).pack(side="left")
         ttk.Label(top, text="Search").pack(side="left", padx=(12, 4))
         self.history_filter = tk.StringVar()
-        self.history_filter.trace_add("write", lambda *_: self.refresh_history())
+        self.history_filter.trace_add("write", lambda *_: self.show_history_page(0))
+        self.history_page = 0  # zero-based
+        self.history_page_size = tk.StringVar(value="100")
         ttk.Entry(top, textvariable=self.history_filter, width=28).pack(side="left")
         self.history_summary = ttk.Label(top)
         self.history_summary.pack(side="left", padx=10)
@@ -1699,16 +1705,33 @@ class App(tk.Tk):
 
         bottom = ttk.Frame(tab)
         bottom.pack(fill="x")
-        ttk.Label(bottom, text="Select rows (Ctrl or Shift for several, Ctrl+A for all). Undo puts moved files "
-                  "back and brings deleted files out of the Recycle Bin.", foreground="gray").pack(side="left")
+        # Pages keep the list fast and readable once the log holds thousands of rows.
+        ttk.Label(bottom, text="Rows per page").pack(side="left")
+        size = ttk.Combobox(bottom, textvariable=self.history_page_size, values=("50", "100", "250", "500"),
+                            state="readonly", width=5)
+        size.pack(side="left", padx=(6, 14))
+        size.bind("<<ComboboxSelected>>", lambda _: self.show_history_page(0))
+        self.history_previous = ttk.Button(bottom, text="‹ Previous", command=lambda: self.show_history_page(self.history_page - 1))
+        self.history_previous.pack(side="left")
+        self.history_page_label = ttk.Label(bottom, width=16, anchor="center")
+        self.history_page_label.pack(side="left", padx=6)
+        self.history_next = ttk.Button(bottom, text="Next ›", command=lambda: self.show_history_page(self.history_page + 1))
+        self.history_next.pack(side="left")
         ttk.Button(bottom, text="Undo selected", command=self.undo_selected).pack(side="right")
+        ttk.Label(tab, text="Select rows with Ctrl or Shift (Ctrl+A for the whole page). Undo puts moved files back "
+                  "and brings deleted files out of the Recycle Bin.", foreground="gray").pack(anchor="w", pady=(6, 0))
         return tab
+
+    def show_history_page(self, page):
+        self.history_page = page
+        self.refresh_history()
 
     def refresh_history(self):
         self.history_tree.delete(*self.history_tree.get_children())
         self.history_rows.clear()
         search = self.history_filter.get().lower().strip()
         total = undoable = 0
+        matches = []  # every row that passes the search; only one page of them is shown
         for run in reversed(core.load_history()):
             for index, move in enumerate(run["moves"]):
                 total += 1
@@ -1724,14 +1747,23 @@ class App(tk.Tk):
                 values = (run["time"], source.parent, destination, status)
                 if search and search not in f"{source.name} {' '.join(map(str, values))}".lower():
                     continue
-                folder = Path(move[1]).parent.name if move[1] else source.parent.name
-                row = self.history_tree.insert(
-                    "", "end", text=source.name, values=values,
-                    image=theme.tile(source.suffix.lstrip("."), folder, faded=not core.is_active(move)),
-                    tags=() if core.is_active(move) else ("inactive",))
-                self.history_rows[row] = (run["time"], index, move)
-        shown = f"showing {len(self.history_rows)} of " if search else ""
-        self.history_summary.config(text=f"{shown}{total} change(s) logged, {undoable} can be undone")
+                matches.append((run["time"], index, move, source, values))
+
+        size = int(self.history_page_size.get())
+        pages = max(1, -(-len(matches) // size))  # rounded up
+        self.history_page = min(max(self.history_page, 0), pages - 1)
+        for run_time, index, move, source, values in matches[self.history_page * size:(self.history_page + 1) * size]:
+            folder = Path(move[1]).parent.name if move[1] else source.parent.name
+            row = self.history_tree.insert(
+                "", "end", text=source.name, values=values,
+                image=theme.tile(source.suffix.lstrip("."), folder, faded=not core.is_active(move)),
+                tags=() if core.is_active(move) else ("inactive",))
+            self.history_rows[row] = (run_time, index, move)
+        self.history_page_label.config(text=f"Page {self.history_page + 1} of {pages}")
+        self.history_previous.config(state="normal" if self.history_page > 0 else "disabled")
+        self.history_next.config(state="normal" if self.history_page < pages - 1 else "disabled")
+        found = f"{len(matches)} match(es) in " if search else ""
+        self.history_summary.config(text=f"{found}{total} change(s) logged, {undoable} can be undone")
 
     def undo_selected(self):
         chosen = [self.history_rows[row] for row in self.history_tree.selection()]
@@ -1821,6 +1853,10 @@ class App(tk.Tk):
         ttk.Button(buttons, text="Edit…", command=self.edit_category).pack(side="left", padx=6)
         ttk.Button(buttons, text="Remove", command=self.remove_category).pack(side="left")
         ttk.Button(buttons, text="Save settings", style=theme.accent(), command=self.save_settings).pack(side="right")
+        self.language_var = tk.StringVar(value=LANGUAGES.get(config["language"], LANGUAGES[""]))
+        ttk.Combobox(buttons, textvariable=self.language_var, values=list(LANGUAGES.values()),
+                     state="readonly", width=11).pack(side="right", padx=(6, 14))
+        ttk.Label(buttons, text="Language").pack(side="right")
         return tab
 
     def show_folders(self):
@@ -1880,16 +1916,25 @@ class App(tk.Tk):
             self.folder_values = [""]
             self.show_folders()
         after_run = next(key for key, label in AFTER_RUN_LABELS.items() if label == self.after_run_var.get())
+        language = next(key for key, label in LANGUAGES.items() if label == self.language_var.get())
+        language_changed = language != self.config_data["language"]
         self.update_config(
+            language=language,
             folders=list(self.folder_values), min_age_days=age, scan_interval_minutes=interval,
             categories=[self.category_values[row] for row in self.categories.get_children()],
             other_folder=self.other_var.get().strip(), ignore=split_list(self.ignore_var.get()), after_run=after_run)
-        message = "Settings saved. The Preview tab shows the result."
+        message = "Settings saved. The Sorter page shows the result."
         if interval == 0:
-            if core.background_pid() or core.autostart_enabled():
+            if self.config_data["auto_sort"]:
                 message += "\n\nAutomatic sorting has been turned off because the interval is 0."
+            self.update_config(auto_sort=False)
             core.set_autostart(False)
-            core.stop_background()
+        if language_changed:
+            # Every label was created in the old language, so reopen the window in the new one.
+            messagebox.showinfo("Settings", "Settings saved. The window will reopen in the new language.")
+            core.launch()
+            self.destroy()
+            return
         self.refresh_preview()
         self.after(800, self.refresh_background_status)
         messagebox.showinfo("Settings", message)
@@ -1910,8 +1955,11 @@ class App(tk.Tk):
         self.background_label.pack(side="left")
 
     def refresh_background_status(self, repeat=False):
-        running = core.background_pid() is not None
-        self.config_data["paused_until"] = core.load_config()["paused_until"]  # the tray menu can change it
+        # The background process hosts the tray icon whether or not automatic sorting is on.
+        on_disk = core.load_config()
+        self.config_data["paused_until"] = on_disk["paused_until"]  # the tray menu can change it
+        self.config_data["auto_sort"] = on_disk["auto_sort"]
+        running = core.auto_sort_on(self.config_data) and core.background_pid() is not None
         paused = core.is_paused(self.config_data)
         if running and paused:
             text = f"Automatic sorting is PAUSED until {self.config_data['paused_until']}"
@@ -1933,9 +1981,10 @@ class App(tk.Tk):
         self.refresh_background_status()
 
     def toggle_background(self):
-        if core.background_pid():
+        if core.auto_sort_on(self.config_data):
+            # The tray icon stays; only the scheduled sorting and the start at sign-in stop.
+            self.update_config(auto_sort=False)
             core.set_autostart(False)
-            core.stop_background()
         elif self.config_data["scan_interval_minutes"] == 0:
             messagebox.showinfo(
                 "Automatic sorting",
@@ -1943,13 +1992,15 @@ class App(tk.Tk):
                 "Set it to 1 or more in Settings, save, then turn it on.")
         elif messagebox.askyesno(
                 "Automatic sorting",
-                f"The {len(self.moves)} file(s) in the preview will be moved now, and from then on files "
+                f"The {len(self.moves)} file(s) on the Sorter page will be moved now, and from then on files "
                 f"will be checked every {self.config_data['scan_interval_minutes']} minutes and moved without asking.\n\n"
                 "After each run you can review, approve or undo what moved.\n\n"
                 "It starts by itself every time you sign in to Windows.\n\nTurn it on?"):
+            self.update_config(auto_sort=True)
             core.set_autostart(True)
-            core.start_background()
-            self.after(1500, self.refresh_preview)
+            if not core.background_pid():
+                core.start_background()
+            self.after(7000, self.refresh_preview)  # the background notices the switch within 5 seconds
         self.after(800, self.refresh_background_status)
 
 
@@ -2027,8 +2078,12 @@ class ReportWindow(tk.Tk):
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode == "--background":
+        if "--auto-on" in sys.argv:  # the setup wizard's "sort automatically" option was ticked
+            core.save_config(dict(core.load_config(), auto_sort=True))
         core.run_background()
     elif mode == "--report":
         ReportWindow().mainloop()
     else:
+        if not core.background_pid():
+            core.start_background()  # puts the icon in the taskbar tray
         App(splash=True).mainloop()
