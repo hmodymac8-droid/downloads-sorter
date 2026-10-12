@@ -1,0 +1,6 @@
+__pycache__/
+*.exe
+backup_before_redesign/
+finish_install.cmd
+icon_preview.png
+redesign_preview.png
