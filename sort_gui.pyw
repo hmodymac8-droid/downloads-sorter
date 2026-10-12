@@ -11,6 +11,8 @@ import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+import booster
+import cleaner
 import duplicates
 import sort_downloads as core
 import theme
@@ -266,6 +268,8 @@ class App(tk.Tk):
         for key, glyph, title, build in (
             ("preview", "", "Preview", self.build_preview_tab),
             ("duplicates", "", "Duplicates", self.build_duplicates_tab),
+            ("cleaner", "\uE74D", "Cleaner", self.build_cleaner_tab),
+            ("booster", "\uE945", "Booster", self.build_booster_tab),
             ("history", "", "History", self.build_history_tab),
             ("settings", "", "Settings", self.build_settings_tab),
             ("about", "", "About", self.build_about_tab),
@@ -614,19 +618,25 @@ class App(tk.Tk):
         ttk.Label(options, text="Check in").grid(row=4, column=0, sticky="w", padx=(0, 12), pady=(8, 0))
         check_row = ttk.Frame(options)
         check_row.grid(row=4, column=1, columnspan=3, sticky="ew", pady=(8, 0))
-        ttk.Button(check_row, text="Check copies in this folder", command=self.check_duplicates_in_folder).pack(
-            side="left")
-        ttk.Entry(check_row, textvariable=self.dup_check_folder).pack(side="left", fill="x", expand=True, padx=6)
-        ttk.Button(check_row, text="Browse…", command=self.browse_check_folder).pack(side="left")
+        ttk.Entry(check_row, textvariable=self.dup_check_folder).pack(side="left", fill="x", expand=True)
+        ttk.Button(check_row, text="Browse…", command=self.browse_check_folder).pack(side="left", padx=6)
         ttk.Button(check_row, text="Use scan folder",
-                   command=lambda: self.dup_check_folder.set(self.dup_folder.get())).pack(side="left", padx=6)
-        ttk.Checkbutton(check_row, text="Include subfolders", variable=self.dup_check_subfolders,
-                        style=theme.switch()).pack(side="left")
+                   command=lambda: self.dup_check_folder.set(self.dup_folder.get())).pack(side="left")
+        # On a row of their own so they stay visible when the window is narrow.
+        check_actions = ttk.Frame(options)
+        check_actions.grid(row=5, column=1, columnspan=3, sticky="w", pady=(4, 0))
+        ttk.Button(check_actions, text="Check copies in this folder", command=self.check_duplicates_in_folder).pack(
+            side="left")
+        ttk.Checkbutton(check_actions, text="Include subfolders", variable=self.dup_check_subfolders,
+                        style=theme.switch()).pack(side="left", padx=12)
 
+        # Packed before the table so the table, not these buttons, shrinks in a small window.
+        bottom = ttk.Frame(tab)
+        bottom.pack(side="bottom", fill="x")
         table = ttk.Frame(tab)
         table.pack(fill="both", expand=True, pady=8)
         self.duplicates_tree = add_scrolled_tree(table, (
-            ("size", "Size", 90, "center"), ("modified", "Modified", 140, "center"), ("folder", "Folder", 260, "w"),
+            ("size", "Size", 90, "center"), ("modified", "Modified", 140, "center"), ("folder", "Folder", 160, "w"),
             ("path", "Full path", 420, "w"),
         ), first=("File", 380), selectmode="extended")
         self.duplicates_tree.tag_configure("group", foreground=theme.MUTED)
@@ -647,8 +657,6 @@ class App(tk.Tk):
             variable.trace_add("write", lambda *_: self.save_duplicates_settings_soon())
         self.dup_mode.bind("<<ComboboxSelected>>", lambda _: self.save_duplicates_settings_soon())
 
-        bottom = ttk.Frame(tab)
-        bottom.pack(fill="x")
         check = ttk.Menubutton(bottom, text="Check…")
         menu = tk.Menu(check, tearoff=0)
         theme.style_menu(menu)
@@ -823,7 +831,7 @@ class App(tk.Tk):
             for entry in files:
                 row = tree.insert(parent, "end", values=(
                     format_size(entry.size), time.strftime("%Y-%m-%d %H:%M", time.localtime(entry.modified)),
-                    entry.path.parent, entry.path))
+                    entry.path.parent.name or entry.path.parent, entry.path))
                 self.dup_rows[row] = entry
                 self.paint_duplicate(row)
         self.update_duplicates_summary()
@@ -1007,6 +1015,358 @@ class App(tk.Tk):
         self.refresh_preview()
         report_result(self, f"Deleted {count} file(s) for good." if permanent else
                       f"Sent {count} file(s) to the Recycle Bin. You can bring them back from History.", errors)
+
+    # --- Cleaner tab ---
+
+    def build_cleaner_tab(self, parent):
+        tab = ttk.Frame(parent)
+        top = ttk.Frame(tab)
+        top.pack(fill="x")
+        self.clean_scan_button = ttk.Button(top, text="Scan", style=theme.accent(), command=self.scan_cleaner)
+        self.clean_scan_button.pack(side="left")
+        self.clean_stop_button = ttk.Button(top, text="Stop", command=lambda: self.clean_cancel.set(), state="disabled")
+        self.clean_stop_button.pack(side="left", padx=6)
+        self.clean_summary = ttk.Label(top, text="Tick what to look for, then click Scan. Nothing is deleted until "
+                                       "you click Clean.")
+        self.clean_summary.pack(side="left", padx=10)
+        self.clean_progress = ttk.Progressbar(top, mode="indeterminate", length=theme.px(160))
+
+        # Packed before the table so the table, not these buttons, shrinks in a small window.
+        bottom = ttk.Frame(tab)
+        bottom.pack(side="bottom", fill="x")
+        self.clean_button = ttk.Button(bottom, text="Clean checked", style=theme.accent(),
+                                       command=self.clean_checked, state="disabled")
+        self.clean_button.pack(side="right")
+        ttk.Label(bottom, text=f"Only files left untouched for {cleaner.MIN_AGE_HOURS} hours are included. "
+                  "Everything cleaned is listed in History.", style="Muted.TLabel").pack(side="left")
+
+        table = ttk.Frame(tab)
+        table.pack(fill="both", expand=True, pady=8)
+        self.cleaner_tree = add_scrolled_tree(table, (
+            ("files", "Files", 70, "center"), ("size", "Size", 90, "center"), ("about", "About", 520, "w"),
+        ), first=("What to clean", 230), selectmode="browse")
+        self.cleaner_tree.bind("<Button-1>", self.on_cleaner_click)
+        self.cleaner_tree.bind("<space>", lambda _: self.toggle_cleaner(self.cleaner_tree.selection()))
+        self.cleaner_tree.bind("<Double-1>", self.open_cleaner_folder)
+        saved = self.config_data["cleaner"]["categories"]
+        self.clean_checked_keys = set(saved if saved is not None else
+                                      [c.key for c in cleaner.CATEGORIES if c.checked])
+        self.clean_found = {}  # category key -> cleaner.Found from the last scan
+        self.clean_thread = None
+        self.clean_cancel = threading.Event()
+        for category in cleaner.CATEGORIES:
+            self.cleaner_tree.insert("", "end", iid=category.key, text=category.label)
+            self.paint_cleaner(category.key)
+        return tab
+
+    def paint_cleaner(self, key):
+        found = self.clean_found.get(key)
+        self.cleaner_tree.item(key, image=theme.checkbox(key in self.clean_checked_keys), values=(
+            len(found.files) if found else "", format_size(found.size) if found else "",
+            cleaner.BY_KEY[key].description))
+
+    def on_cleaner_click(self, event):
+        tree = self.cleaner_tree
+        row = tree.identify_row(event.y)
+        if row and tree.identify_column(event.x) == "#0" and "image" in tree.identify_element(event.x, event.y):
+            self.toggle_cleaner([row])
+            return "break"
+
+    def toggle_cleaner(self, rows):
+        for key in rows:
+            self.clean_checked_keys ^= {key}
+            self.paint_cleaner(key)
+        self.update_config(cleaner={"categories": sorted(self.clean_checked_keys)})
+        self.update_cleaner_summary()
+
+    def open_cleaner_folder(self, event):
+        found = self.clean_found.get(self.cleaner_tree.identify_row(event.y))
+        if found and found.folders:
+            os.startfile(found.folders[0])
+
+    def chosen_cleaner_results(self):
+        return [found for key, found in self.clean_found.items() if key in self.clean_checked_keys]
+
+    def update_cleaner_summary(self):
+        if not self.clean_found:
+            return
+        chosen = self.chosen_cleaner_results()
+        count, size = sum(len(f.files) for f in chosen), sum(f.size for f in chosen)
+        self.clean_summary.config(text=f"{count} file(s), {format_size(size)} can be cleaned." if count
+                                  else "Nothing to clean in the ticked items.")
+        self.clean_button.config(state="normal" if count else "disabled")
+
+    def set_cleaner_busy(self, busy, mode="indeterminate"):
+        self.clean_scan_button.config(state="disabled" if busy else "normal")
+        self.clean_stop_button.config(state="normal" if busy else "disabled")
+        if busy:
+            self.clean_button.config(state="disabled")
+            self.clean_progress.config(mode=mode, value=0)
+            self.clean_progress.pack(side="right")
+            if mode == "indeterminate":
+                self.clean_progress.start(12)
+        else:
+            self.clean_progress.stop()
+            self.clean_progress.pack_forget()
+
+    def run_cleaner_job(self, work, finish, state):
+        """Run work(state) off the window's thread, showing state["status"], then finish(state)."""
+        self.clean_cancel = state["cancel"] = threading.Event()
+
+        def guarded():
+            try:
+                work(state)
+            except cleaner.Cancelled:
+                state["cancelled"] = True
+            except Exception as error:  # shown to the user, not lost with the thread
+                state["error"] = error
+
+        self.clean_thread = threading.Thread(target=guarded, daemon=True)
+        self.clean_thread.start()
+
+        def check():
+            if self.clean_thread.is_alive():
+                self.clean_summary.config(text=state.get("status", ""))
+                if "fraction" in state:
+                    self.clean_progress.config(value=state["fraction"] * 100)
+                self.after(150, check)
+                return
+            self.set_cleaner_busy(False)
+            if "error" in state:
+                self.clean_summary.config(text="Something went wrong.")
+                messagebox.showerror("Cleaner", str(state["error"]), parent=self)
+            else:
+                finish(state)
+
+        check()
+
+    def scan_cleaner(self):
+        if self.clean_thread and self.clean_thread.is_alive():
+            return
+        keys = [c.key for c in cleaner.CATEGORIES if c.key in self.clean_checked_keys]
+        if not keys:
+            messagebox.showinfo("Cleaner", "Tick at least one item to look for.", parent=self)
+            return
+        self.clean_found = {}
+        for category in cleaner.CATEGORIES:
+            self.paint_cleaner(category.key)
+        self.set_cleaner_busy(True)
+
+        def work(state):
+            state["found"] = cleaner.scan(keys, state["cancel"], lambda text: state.update(status=text))
+
+        def finish(state):
+            if state.get("cancelled"):
+                self.clean_summary.config(text="Scan stopped.")
+                return
+            self.clean_found = {found.category.key: found for found in state["found"]}
+            for key in self.clean_found:
+                self.paint_cleaner(key)
+            self.update_cleaner_summary()
+
+        self.run_cleaner_job(work, finish, {"status": "Looking for junk files…"})
+
+    def clean_checked(self):
+        chosen = self.chosen_cleaner_results()
+        paths = [path for found in chosen for path in found.files]
+        if not paths:
+            return
+        how = ask_delete_how(self, f"Clean {len(paths)} file(s) ({format_size(sum(f.size for f in chosen))})?\n\n"
+                             "Files a program is using are skipped. Deleting for good frees the space now; "
+                             "the Recycle Bin holds on to it until it is emptied.")
+        if how is None:
+            return
+        sizes = {}
+        for path in paths:
+            try:
+                sizes[path] = path.stat().st_size
+            except OSError:
+                sizes[path] = 0
+        roots = [folder for found in chosen for folder in found.folders]
+        self.set_cleaner_busy(True, mode="determinate")
+
+        def work(state):
+            def progress(done, count):
+                state.update(status=f"Cleaning {done} of {count}…", fraction=done / count)
+            state["result"] = core.delete_files(paths, permanent=how == "permanent", progress=progress,
+                                                cancel=state["cancel"])
+            cleaner.remove_empty_folders(roots)
+
+        def finish(state):
+            count, errors = state["result"]
+            gone = {path for path in paths if not path.exists()}
+            for found in self.clean_found.values():
+                found.files = [path for path in found.files if path not in gone]
+                found.size = sum(sizes.get(path, 0) for path in found.files)
+                self.paint_cleaner(found.category.key)
+            self.update_cleaner_summary()
+            self.refresh_preview()
+            where = "deleted for good" if how == "permanent" else "sent to the Recycle Bin"
+            message = f"Cleaned {count} file(s), {format_size(sum(sizes[p] for p in gone))} {where}. " \
+                      "They are listed in History."
+            if state["cancel"].is_set():
+                message += " Stopped before the end."
+            if errors:
+                message += f"\n\n{len(errors)} file(s) were skipped because a program is using them " \
+                           "or they need administrator rights."
+            messagebox.showinfo("Cleaner", message, parent=self)
+
+        self.run_cleaner_job(work, finish, {"status": "Cleaning…"})
+
+    # --- Booster tab ---
+
+    def build_booster_tab(self, parent):
+        tab = ttk.Frame(parent)
+        self.boost_memory = ttk.Label(tab)
+        self.boost_memory.pack(anchor="w")
+        notebook = ttk.Notebook(tab)
+        notebook.pack(fill="both", expand=True, pady=(theme.px(8), 0))
+
+        # Startup apps: fewer of them means a faster sign-in and less running in the background.
+        startup = ttk.Frame(notebook, padding=theme.px(10))
+        notebook.add(startup, text="Startup apps")
+        bar = ttk.Frame(startup)
+        bar.pack(side="bottom", fill="x")
+        ttk.Button(bar, text="Refresh", command=self.refresh_startup).pack(side="left")
+        ttk.Button(bar, text="Turn on", command=lambda: self.set_startup_selected(True)).pack(side="right")
+        ttk.Button(bar, text="Turn off", style=theme.accent(),
+                   command=lambda: self.set_startup_selected(False)).pack(side="right", padx=6)
+        self.startup_summary = ttk.Label(bar, style="Muted.TLabel")
+        self.startup_summary.pack(side="left", padx=10)
+        table = ttk.Frame(startup)
+        table.pack(fill="both", expand=True, pady=(0, 8))
+        self.startup_tree = add_scrolled_tree(table, (
+            ("status", "Status", 70, "w"), ("where", "Where", 190, "w"), ("command", "Command", 420, "w"),
+        ), first=("App", 240), selectmode="extended")
+        self.startup_tree.tag_configure("off", foreground=theme.MUTED)
+        self.startup_tree.bind("<Double-1>", lambda _: self.set_startup_selected(None))
+        self.startup_rows = {}
+
+        # Programs: the biggest memory users, which can be ended to free memory.
+        programs = ttk.Frame(notebook, padding=theme.px(10))
+        notebook.add(programs, text="Running programs")
+        bar = ttk.Frame(programs)
+        bar.pack(side="bottom", fill="x")
+        ttk.Button(bar, text="Refresh", command=self.refresh_programs).pack(side="left")
+        ttk.Button(bar, text="End selected", style=theme.accent(), command=self.end_selected_programs).pack(side="right")
+        ttk.Label(bar, text="Save your work first: ending a program closes it without asking.",
+                  style="Muted.TLabel").pack(side="left", padx=10)
+        table = ttk.Frame(programs)
+        table.pack(fill="both", expand=True, pady=(0, 8))
+        self.programs_tree = add_scrolled_tree(table, (
+            ("copies", "Copies", 80, "e"), ("memory", "Memory", 110, "e"), ("note", "", 300, "w"),
+        ), first=("Program", 280), selectmode="extended")
+        self.programs_tree.tag_configure("protected", foreground=theme.MUTED)
+        self.program_rows = {}
+
+        # Power plan.
+        power = ttk.Frame(notebook, padding=theme.px(14))
+        notebook.add(power, text="Power plan")
+        ttk.Label(power, text="High performance keeps the processor at full speed: faster, but it uses more "
+                  "power. Balanced saves power while the PC is idle.", wraplength=theme.px(640),
+                  justify="left").pack(anchor="w")
+        self.power_choice = tk.StringVar()
+        self.power_plans = {}
+        self.power_list = ttk.Frame(power)
+        self.power_list.pack(anchor="w", pady=theme.px(10))
+        buttons = ttk.Frame(power)
+        buttons.pack(anchor="w")
+        ttk.Button(buttons, text="Use this plan", style=theme.accent(), command=self.apply_power_plan).pack(side="left")
+        ttk.Button(buttons, text="Refresh", command=self.refresh_power).pack(side="left", padx=6)
+
+        notebook.bind("<<NotebookTabChanged>>", lambda _: self.refresh_memory())
+        self.after(200, self.refresh_booster)
+        return tab
+
+    def refresh_booster(self):
+        self.refresh_startup()
+        self.refresh_programs()
+        self.refresh_power()
+
+    def refresh_memory(self):
+        total, available = booster.memory_status()
+        used = total - available
+        self.boost_memory.config(text=f"Memory in use: {format_size(used)} of {format_size(total)} "
+                                 f"({used * 100 // max(total, 1)}%)")
+
+    def refresh_startup(self):
+        tree = self.startup_tree
+        tree.delete(*tree.get_children())
+        self.startup_rows.clear()
+        items = booster.startup_items()
+        for item in items:
+            row = tree.insert("", "end", text=item.name, tags=() if item.enabled else ("off",),
+                              values=("On" if item.enabled else "Off", item.where, item.command))
+            self.startup_rows[row] = item
+        on = sum(item.enabled for item in items)
+        self.startup_summary.config(text=f"{on} of {len(items)} start with Windows. "
+                                    "Turning one off keeps it installed.")
+
+    def set_startup_selected(self, enabled):
+        """enabled=None flips each selected app."""
+        items = [self.startup_rows[row] for row in self.startup_tree.selection()]
+        if not items:
+            messagebox.showinfo("Startup apps", "Select one or more apps first.", parent=self)
+            return
+        errors = []
+        for item in items:
+            try:
+                booster.set_startup_enabled(item, (not item.enabled) if enabled is None else enabled)
+            except PermissionError:
+                errors.append(f"{item.name}: it is set up for all users, so changing it needs administrator rights")
+            except OSError as error:
+                errors.append(f"{item.name}: {error}")
+        self.refresh_startup()
+        if errors:
+            report_result(self, "Some apps could not be changed.", errors)
+
+    def refresh_programs(self):
+        tree = self.programs_tree
+        tree.delete(*tree.get_children())
+        self.program_rows.clear()
+        for program in booster.running_programs()[:60]:
+            row = tree.insert("", "end", text=program.name, tags=("protected",) if program.protected else (),
+                              values=(len(program.pids), format_size(program.memory),
+                                      "Part of Windows" if program.protected else ""))
+            self.program_rows[row] = program
+        self.refresh_memory()
+
+    def end_selected_programs(self):
+        programs = [p for p in (self.program_rows[row] for row in self.programs_tree.selection()) if not p.protected]
+        if not programs:
+            messagebox.showinfo("Running programs", "Select one or more programs that are not part of Windows.",
+                                parent=self)
+            return
+        names = "\n".join(f"{p.name} ({format_size(p.memory)})" for p in programs)
+        if not messagebox.askyesno("End programs", f"End these programs now? Unsaved work in them is lost.\n\n{names}",
+                                   icon="warning", parent=self):
+            return
+        before = booster.memory_status()[1]
+        errors = [f"{p.name}: {error}" for p in programs if (error := booster.end_program(p))]
+        time.sleep(0.5)  # give Windows a moment to hand the memory back
+        self.refresh_programs()
+        freed = max(booster.memory_status()[1] - before, 0)
+        report_result(self, f"Ended {len(programs) - len(errors)} program(s), about {format_size(freed)} freed.",
+                      errors)
+
+    def refresh_power(self):
+        for child in self.power_list.winfo_children():
+            child.destroy()
+        plans = booster.power_plans()
+        self.power_plans = {plan.guid: plan for plan in plans}
+        for plan in plans:
+            ttk.Radiobutton(self.power_list, text=plan.name + ("  (in use)" if plan.active else ""),
+                            value=plan.guid, variable=self.power_choice).pack(anchor="w", pady=2)
+            if plan.active:
+                self.power_choice.set(plan.guid)
+
+    def apply_power_plan(self):
+        plan = self.power_plans.get(self.power_choice.get())
+        if not plan or plan.active:
+            return
+        if error := booster.set_power_plan(plan):
+            messagebox.showwarning("Power plan", error, parent=self)
+        self.refresh_power()
 
     # --- History tab ---
 
@@ -1237,12 +1597,13 @@ class App(tk.Tk):
         bar.pack(side="bottom", fill="x")
         self.status_dot = ttk.Label(bar, text="●", font=("Segoe UI", 13))
         self.status_dot.pack(side="left", padx=(0, 6))
-        self.background_label = ttk.Label(bar)
-        self.background_label.pack(side="left")
+        # The buttons are packed before the label so a narrow window cuts the text, not the buttons.
         self.background_button = ttk.Button(bar, command=self.toggle_background)
         self.background_button.pack(side="right")
         self.pause_button = ttk.Button(bar, command=self.toggle_pause)
         self.pause_button.pack(side="right", padx=6)
+        self.background_label = ttk.Label(bar)
+        self.background_label.pack(side="left")
 
     def refresh_background_status(self, repeat=False):
         running = core.background_pid() is not None
