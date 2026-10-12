@@ -18,7 +18,7 @@ from pathlib import Path
 import i18n
 
 APP_NAME = "Downloads Sorter"
-VERSION = "1.6"  # must match the tag of the GitHub release this is published as (v1.6)
+VERSION = "1.7"  # must match the tag of the GitHub release this is published as (v1.7)
 GITHUB_REPO = "hmodymac8-droid/downloads-sorter"  # where updates are looked for
 FROZEN = getattr(sys, "frozen", False)  # True inside the packaged .exe
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
@@ -814,7 +814,8 @@ def make_tray_icon(pystray, background: Background):
     tr = i18n.tr
     # Texts are functions so the menu follows a language change without a restart.
     return pystray.Icon("DownloadsSorter", tray_image(), APP_NAME, pystray.Menu(
-        item(lambda _: tr(f"Open {APP_NAME}"), lambda *_: launch(), default=True),
+        # From the tray the program is already running, so the window opens without the splash card.
+        item(lambda _: tr(f"Open {APP_NAME}"), lambda *_: launch("--no-splash"), default=True),
         item(lambda _: tr("Sort now"), background.request_sort),
         item(lambda _: tr("Resume sorting" if is_paused(load_config()) else "Pause for today"), background.toggle_pause),
         item(lambda _: tr("Show report"), lambda *_: open_report()),

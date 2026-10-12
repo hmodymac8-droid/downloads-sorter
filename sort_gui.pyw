@@ -1782,4 +1782,4 @@ if __name__ == "__main__":
     else:
         if not core.background_pid():
             core.start_background()  # puts the icon in the taskbar tray
-        App(splash=True).mainloop()
+        App(splash="--no-splash" not in sys.argv).mainloop()
