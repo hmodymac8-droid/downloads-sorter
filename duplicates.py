@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 hmodymac8-droid
 """Find duplicate files: by content, by name, by name and size, by a similar
 name (messy song/video titles), or by size.
 

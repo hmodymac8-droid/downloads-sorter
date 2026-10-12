@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 hmodymac8-droid
 """Arabic interface for Downloads Sorter.
 
 The program's source is written in English. Rather than wrap every string by

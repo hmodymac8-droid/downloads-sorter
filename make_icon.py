@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 hmodymac8-droid
 """Draw the app icon and save it as icon.ico (needs Pillow).
 
     py make_icon.py
