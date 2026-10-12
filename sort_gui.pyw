@@ -259,7 +259,8 @@ class App(tk.Tk):
         ), first=("File", 380), selectmode="extended")
         self.tree.bind("<Delete>", lambda _: self.exclude_selected())
         attach_file_menu(self.tree, lambda row: self.moves[row]["source"], self.refresh_preview,
-                         extra=[("Never move this file", self.never_move)])
+                         extra=[("Move only the selected file(s) now", lambda _: self.move_selected()),
+                                ("Never move this file", self.never_move)])
 
         bottom = ttk.Frame(tab)
         bottom.pack(fill="x")
@@ -308,6 +309,29 @@ class App(tk.Tk):
         if not messagebox.askyesno("Move files", f"Move the {len(self.moves)} listed file(s)?"):
             return
         count, errors = core.move_files(list(self.moves.values()))
+        self.refresh_preview()
+        report_result(self, f"Moved {count} file(s).", errors)
+
+    def move_selected(self):
+        """Move just the highlighted preview rows and leave the rest for later."""
+        moves = [self.moves[row] for row in self.tree.selection() if row in self.moves]
+        if not moves or not messagebox.askyesno("Move files", f"Move only the {len(moves)} selected file(s)?"):
+            return
+        count, errors = core.move_files(moves)
+        self.refresh_preview()
+        report_result(self, f"Moved {count} file(s).", errors)
+
+    def sort_folder_now(self, index):
+        """Sort one of the folders from Settings right away, by the usual rules."""
+        folder = self.folder_values[index]
+        name = folder or str(core.detect_downloads_folder())
+        moves = core.plan_moves(dict(self.config_data, folders=[folder]))
+        if not moves:
+            messagebox.showinfo("Sort folder", f"Nothing to sort in\n{name}\n\nNo files there are old enough yet.")
+            return
+        if not messagebox.askyesno("Sort folder", f"Move {len(moves)} file(s) in\n{name}\ninto their category folders?"):
+            return
+        count, errors = core.move_files(moves)
         self.refresh_preview()
         report_result(self, f"Moved {count} file(s).", errors)
 
@@ -521,6 +545,19 @@ class App(tk.Tk):
         self.folders.grid(row=0, column=1, sticky="ew", padx=6)
         self.folder_values = list(config["folders"])
         self.show_folders()
+        folder_menu = tk.Menu(self.folders, tearoff=0)
+        theme.style_menu(folder_menu)
+        folder_menu.add_command(label="Sort only this folder now",
+                                command=lambda: self.sort_folder_now(self.folders.curselection()[0]))
+
+        def folder_popup(event):
+            index = self.folders.nearest(event.y)
+            if index >= 0:
+                self.folders.selection_clear(0, "end")
+                self.folders.selection_set(index)
+                folder_menu.tk_popup(event.x_root, event.y_root)
+
+        self.folders.bind("<Button-3>", folder_popup)
         folder_buttons = ttk.Frame(tab)
         folder_buttons.grid(row=0, column=2, sticky="n")
         ttk.Button(folder_buttons, text="Add…", command=self.add_folder).pack(fill="x")
