@@ -17,6 +17,7 @@ import duplicates
 import i18n
 import sort_downloads as core
 import theme
+import vault
 
 # Before any window text exists: from here on, text given to widgets is shown in the chosen language.
 i18n.install(core.language(core.load_config()))
@@ -274,6 +275,7 @@ class App(tk.Tk):
             ("duplicates", "", "Duplicates", self.build_duplicates_tab),
             ("cleaner", "\uE74D", "Cleaner", self.build_cleaner_tab),
             ("booster", "\uE945", "Booster", self.build_booster_tab),
+            ("vault", "\uE72E", "Vault", self.build_vault_tab),
             ("history", "", "History", self.build_history_tab),
             ("settings", "", "Settings", self.build_settings_tab),
             ("about", "", "About", self.build_about_tab),
@@ -412,6 +414,8 @@ class App(tk.Tk):
         done()
 
     def close(self):
+        if self.vault is not None:
+            self.vault.close_all()  # save edits to opened vault files and remove the readable copies
         self.save_duplicates_settings()
         self.update_config(window_geometry=self.geometry())
         self.destroy()
@@ -1047,7 +1051,7 @@ class App(tk.Tk):
         table = ttk.Frame(tab)
         table.pack(fill="both", expand=True, pady=8)
         self.cleaner_tree = add_scrolled_tree(table, (
-            ("files", "Files", 70, "center"), ("size", "Size", 90, "center"), ("about", "About", 520, "w"),
+            ("files", "Files", 70, "center"), ("size", "Size", 90, "center"), ("details", "Details", 520, "w"),
         ), first=("What to clean", 230), selectmode="browse")
         self.cleaner_tree.bind("<Button-1>", self.on_cleaner_click)
         self.cleaner_tree.bind("<space>", lambda _: self.toggle_cleaner(self.cleaner_tree.selection()))
@@ -1059,7 +1063,8 @@ class App(tk.Tk):
         self.clean_thread = None
         self.clean_cancel = threading.Event()
         for category in cleaner.CATEGORIES:
-            self.cleaner_tree.insert("", "end", iid=category.key, text=category.label)
+            # The row text is an interface label here, not a file name, so it is translated by hand.
+            self.cleaner_tree.insert("", "end", iid=category.key, text=i18n.visual(i18n.tr(category.label)))
             self.paint_cleaner(category.key)
         return tab
 
@@ -1205,14 +1210,16 @@ class App(tk.Tk):
                 self.paint_cleaner(found.category.key)
             self.update_cleaner_summary()
             self.refresh_preview()
-            where = "deleted for good" if how == "permanent" else "sent to the Recycle Bin"
-            message = f"Cleaned {count} file(s), {format_size(sum(sizes[p] for p in gone))} {where}. " \
-                      "They are listed in History."
+            # Built from whole sentences so each can be translated.
+            freed = format_size(sum(sizes[p] for p in gone))
+            message = i18n.tr(f"Cleaned {count} file(s), {freed} deleted for good. They are listed in History."
+                              if how == "permanent" else
+                              f"Cleaned {count} file(s), {freed} sent to the Recycle Bin. They are listed in History.")
             if state["cancel"].is_set():
-                message += " Stopped before the end."
+                message += " " + i18n.tr("Stopped before the end.")
             if errors:
-                message += f"\n\n{len(errors)} file(s) were skipped because a program is using them " \
-                           "or they need administrator rights."
+                message += "\n\n" + i18n.tr(f"{len(errors)} file(s) were skipped because a program is using them "
+                                            "or they need administrator rights.")
             messagebox.showinfo("Cleaner", message, parent=self)
 
         self.run_cleaner_job(work, finish, {"status": "Cleaning…"})
@@ -1228,7 +1235,7 @@ class App(tk.Tk):
 
         # Startup apps: fewer of them means a faster sign-in and less running in the background.
         startup = ttk.Frame(notebook, padding=theme.px(10))
-        notebook.add(startup, text="Startup apps")
+        notebook.add(startup, text=i18n.visual(i18n.tr("Startup apps")))  # tab labels are not hooked
         bar = ttk.Frame(startup)
         bar.pack(side="bottom", fill="x")
         ttk.Button(bar, text="Refresh", command=self.refresh_startup).pack(side="left")
@@ -1248,7 +1255,7 @@ class App(tk.Tk):
 
         # Programs: the biggest memory users, which can be ended to free memory.
         programs = ttk.Frame(notebook, padding=theme.px(10))
-        notebook.add(programs, text="Running programs")
+        notebook.add(programs, text=i18n.visual(i18n.tr("Running programs")))
         bar = ttk.Frame(programs)
         bar.pack(side="bottom", fill="x")
         ttk.Button(bar, text="Refresh", command=self.refresh_programs).pack(side="left")
@@ -1265,7 +1272,7 @@ class App(tk.Tk):
 
         # Power plan.
         power = ttk.Frame(notebook, padding=theme.px(14))
-        notebook.add(power, text="Power plan")
+        notebook.add(power, text=i18n.visual(i18n.tr("Power plan")))
         ttk.Label(power, text="High performance keeps the processor at full speed: faster, but it uses more "
                   "power. Balanced saves power while the PC is idle.", wraplength=theme.px(640),
                   justify="left").pack(anchor="w")
@@ -1371,6 +1378,306 @@ class App(tk.Tk):
         if error := booster.set_power_plan(plan):
             messagebox.showwarning("Power plan", error, parent=self)
         self.refresh_power()
+
+    # --- Vault tab ---
+
+    VAULT_IDLE_MINUTES = 10  # the vault locks itself after this long without use
+
+    def build_vault_tab(self, parent):
+        self.vault_tab = ttk.Frame(parent)
+        self.vault = None  # the unlocked vault.Vault, or None while locked
+        self.vault_rows = {}  # row id -> vault.Item
+        self.vault_job = None
+        self.vault_idle_job = None
+        vault.clear_open_copies()  # copies left behind if the program was closed abruptly
+        self.show_vault_screen()
+        return self.vault_tab
+
+    def show_vault_screen(self):
+        for child in self.vault_tab.winfo_children():
+            child.destroy()
+        if self.vault is not None:
+            self.build_vault_unlocked()
+        else:
+            self.build_vault_password(create=not vault.exists())
+
+    def build_vault_password(self, create):
+        box = ttk.Frame(self.vault_tab)
+        box.pack(anchor="w", pady=(theme.px(10), 0))
+        if create:
+            intro = ("Keep private files here. Files you add are encrypted with your password and removed from where "
+                     "they were, so nobody can open them unless they know the password.")
+        else:
+            intro = "The vault is locked. Enter your password to see and open its files."
+        ttk.Label(box, text=intro, wraplength=theme.px(620), justify="left").grid(
+            row=0, column=0, columnspan=3, sticky="w", pady=(0, theme.px(14)))
+        password, confirm = tk.StringVar(), tk.StringVar()
+        ttk.Label(box, text="Password").grid(row=1, column=0, sticky="w", padx=(0, 12))
+        first = ttk.Entry(box, textvariable=password, show="•", width=32)
+        first.grid(row=1, column=1, sticky="w")
+        if create:
+            ttk.Label(box, text="Type it again").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=(8, 0))
+            second = ttk.Entry(box, textvariable=confirm, show="•", width=32)
+            second.grid(row=2, column=1, sticky="w", pady=(8, 0))
+        message = ttk.Label(box, foreground=theme.AMBER)
+        message.grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
+        def submit(_=None):
+            if create:
+                if password.get() != confirm.get():
+                    message.config(text="The two passwords are not the same.")
+                    return
+                action = lambda: vault.create(password.get())
+            else:
+                action = lambda: vault.unlock(password.get())
+            message.config(text="Creating the vault…" if create else "Unlocking…")
+            self.config(cursor="watch")
+            self.update_idletasks()
+            try:
+                self.vault = action()
+            except vault.VaultError as error:
+                message.config(text=str(error))
+                password.set("")
+                first.focus_set()
+                return
+            finally:
+                self.config(cursor="")
+            self.vault_touch()
+            self.show_vault_screen()
+
+        button = ttk.Button(box, text="Create vault" if create else "Unlock", style=theme.accent(), command=submit)
+        button.grid(row=4, column=1, sticky="w", pady=(theme.px(12), 0))
+        for entry in box.winfo_children():
+            if isinstance(entry, ttk.Entry):
+                entry.bind("<Return>", submit)
+        if create:
+            ttk.Label(box, text="Write the password down somewhere safe. If it is forgotten, the files in the vault "
+                      "can't be recovered by anyone.", style="Muted.TLabel", wraplength=theme.px(620),
+                      justify="left").grid(row=5, column=0, columnspan=3, sticky="w", pady=(theme.px(16), 0))
+        first.focus_set()
+
+    def build_vault_unlocked(self):
+        tab = self.vault_tab
+        top = ttk.Frame(tab)
+        top.pack(fill="x")
+        self.vault_add_button = ttk.Button(top, text="Add files…", style=theme.accent(), command=self.vault_add)
+        self.vault_add_button.pack(side="left")
+        ttk.Button(top, text="Open", command=self.vault_open).pack(side="left", padx=(6, 0))
+        ttk.Button(top, text="Move out…", command=self.vault_move_out).pack(side="left", padx=6)
+        ttk.Button(top, text="Delete…", command=self.vault_delete).pack(side="left")
+        ttk.Button(top, text="Lock", command=self.lock_vault).pack(side="right")
+        ttk.Button(top, text="Change password…", command=self.vault_change_password).pack(side="right", padx=6)
+
+        bottom = ttk.Frame(tab)
+        bottom.pack(side="bottom", fill="x")
+        self.vault_status = ttk.Label(bottom, style="Muted.TLabel")
+        self.vault_status.pack(side="left")
+        self.vault_progress = ttk.Progressbar(bottom, mode="determinate", length=theme.px(200))
+
+        search = ttk.Frame(tab)
+        search.pack(fill="x", pady=(theme.px(10), 0))
+        ttk.Label(search, text="Search").pack(side="left", padx=(0, 6))
+        self.vault_filter = tk.StringVar()
+        self.vault_filter.trace_add("write", lambda *_: self.refresh_vault())
+        ttk.Entry(search, textvariable=self.vault_filter, width=28).pack(side="left")
+
+        table = ttk.Frame(tab)
+        table.pack(fill="both", expand=True, pady=8)
+        self.vault_tree = add_scrolled_tree(table, (
+            ("size", "Size", 90, "e"), ("added", "Added", 140, "center"), ("folder", "Came from", 220, "w"),
+        ), first=("File", 360), selectmode="extended")
+        self.vault_tree.bind("<Double-1>", lambda _: self.vault_open())
+        self.vault_tree.bind("<Return>", lambda _: self.vault_open())
+        self.vault_tree.bind("<Delete>", lambda _: self.vault_delete())
+        self.vault_tree.bind("<Control-a>", lambda _: self.vault_tree.selection_set(self.vault_tree.get_children()))
+        self.refresh_vault()
+
+    def refresh_vault(self):
+        if self.vault is None:
+            return
+        tree = self.vault_tree
+        tree.delete(*tree.get_children())
+        self.vault_rows.clear()
+        search = self.vault_filter.get().lower().strip()
+        items = sorted(self.vault.items, key=lambda item: item.name.lower())
+        for item in items:
+            if search and search not in item.name.lower():
+                continue
+            row = tree.insert("", "end", text=item.name, image=theme.tile(Path(item.name).suffix.lstrip(".")),
+                              values=(format_size(item.size), time.strftime("%Y-%m-%d %H:%M", time.localtime(item.added)),
+                                      Path(item.folder).name or item.folder))
+            self.vault_rows[row] = item
+        shown = f"Showing {len(self.vault_rows)} of " if search else ""
+        self.vault_status.config(text=f"{shown}{len(items)} file(s), {format_size(sum(i.size for i in items))}. "
+                                 f"Locks itself after {self.VAULT_IDLE_MINUTES} minutes without use.")
+
+    def selected_vault_items(self):
+        items = [self.vault_rows[row] for row in self.vault_tree.selection()]
+        if not items:
+            messagebox.showinfo("Vault", "Select one or more files first.", parent=self)
+        return items
+
+    def vault_touch(self):
+        """Restart the idle timer that locks the vault."""
+        if self.vault_idle_job:
+            self.after_cancel(self.vault_idle_job)
+        self.vault_idle_job = self.after(self.VAULT_IDLE_MINUTES * 60_000, self.lock_vault_when_idle)
+
+    def lock_vault_when_idle(self):
+        if self.vault_job and self.vault_job.is_alive():
+            self.vault_touch()  # never in the middle of adding or moving files
+            return
+        self.lock_vault()
+
+    def lock_vault(self):
+        if self.vault is None:
+            return
+        if self.vault_job and self.vault_job.is_alive():
+            messagebox.showinfo("Vault", "Wait for the current job to finish first.", parent=self)
+            return
+        problems = self.vault.close_all()
+        self.vault = None
+        if self.vault_idle_job:
+            self.after_cancel(self.vault_idle_job)
+            self.vault_idle_job = None
+        self.show_vault_screen()
+        if problems:
+            messagebox.showwarning("Vault", "Locked, but:\n\n" + "\n".join(problems[:8]), parent=self)
+
+    def run_vault_job(self, label, work, done):
+        """Run work(progress) off the window's thread, then done(result) back on it."""
+        self.vault_touch()
+        state = {"text": label, "fraction": 0}
+
+        def progress(number, count, name, done_bytes, size):
+            state.update(text=f"{label} {number + 1} of {count}: {name}",
+                         fraction=(number + (done_bytes / size if size else 1)) / count)
+
+        def guarded():
+            try:
+                state["result"] = work(progress)
+            except Exception as error:  # shown to the user, not lost with the thread
+                state["error"] = error
+
+        self.vault_job = threading.Thread(target=guarded, daemon=True)
+        self.vault_job.start()
+        self.vault_add_button.config(state="disabled")
+        self.vault_progress.pack(side="right")
+
+        def check():
+            if self.vault_job.is_alive():
+                self.vault_status.config(text=state["text"])
+                self.vault_progress.config(value=state["fraction"] * 100)
+                self.after(120, check)
+                return
+            self.vault_progress.pack_forget()
+            self.vault_add_button.config(state="normal")
+            self.refresh_vault()
+            self.vault_touch()
+            if "error" in state:
+                messagebox.showerror("Vault", str(state["error"]), parent=self)
+            else:
+                done(state["result"])
+
+        check()
+
+    def vault_add(self):
+        names = filedialog.askopenfilenames(parent=self, title="Files to move into the vault")
+        if not names:
+            return
+        paths = [Path(name) for name in names]
+        if not messagebox.askyesno("Vault", f"Move {len(paths)} file(s) into the vault?\n\nEach file is encrypted, "
+                                   "checked, and then removed from where it is now (not to the Recycle Bin, which "
+                                   "would keep a readable copy).", parent=self):
+            return
+        self.run_vault_job("Adding", lambda progress: self.vault.add(paths, progress),
+                           lambda result: report_result(self, f"Moved {result[0]} file(s) into the vault.", result[1]))
+
+    def vault_open(self):
+        items = self.selected_vault_items()
+        self.vault_touch()
+        errors = []
+        for item in items[:10]:
+            try:
+                os.startfile(self.vault.open_copy(item))
+            except (OSError, vault.VaultError) as error:
+                errors.append(f"{item.name}: {error}")
+        if errors:
+            messagebox.showwarning("Vault", "Could not open:\n" + "\n".join(errors), parent=self)
+        elif items:
+            self.vault_status.config(text="Opened. Changes you save are kept in the vault when it locks; "
+                                     "the open copy is removed then.")
+
+    def vault_move_out(self):
+        items = self.selected_vault_items()
+        if not items:
+            return
+        choice = messagebox.askyesnocancel(
+            "Move out", f"Move {len(items)} file(s) out of the vault, back to the folder each came from?\n\n"
+            "Yes: back where they came from\nNo: choose a folder", parent=self)
+        if choice is None:
+            return
+        folder = None
+        if not choice:
+            chosen = filedialog.askdirectory(parent=self, title="Move the files to")
+            if not chosen:
+                return
+            folder = Path(chosen)
+        self.run_vault_job("Moving out", lambda progress: self.vault.move_out(items, folder, progress),
+                           lambda result: report_result(self, f"Moved {result[0]} file(s) out of the vault. "
+                                                        "They are normal, readable files again.", result[1]))
+
+    def vault_delete(self):
+        items = self.selected_vault_items()
+        if not items:
+            return
+        names = "\n".join(item.name for item in items[:12]) + ("\n…" if len(items) > 12 else "")
+        if not messagebox.askyesno("Delete from vault", f"Delete {len(items)} file(s) from the vault for good? "
+                                   f"They can't be brought back.\n\n{names}", icon="warning", parent=self):
+            return
+        count, errors = self.vault.delete(items)
+        self.refresh_vault()
+        self.vault_touch()
+        report_result(self, f"Deleted {count} file(s) from the vault.", errors)
+
+    def vault_change_password(self):
+        dialog = tk.Toplevel(self)
+        dialog.title("Change vault password")
+        dialog.transient(self)
+        dialog.resizable(False, False)
+        dialog.configure(background=theme.BACKGROUND)
+        theme.dark_titlebar(dialog)
+        frame = ttk.Frame(dialog, padding=theme.px(18))
+        frame.pack(fill="both", expand=True)
+        fields = {}
+        for row, (key, label) in enumerate((("old", "Current password"), ("new", "New password"),
+                                            ("again", "Type it again"))):
+            ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=4)
+            fields[key] = tk.StringVar()
+            ttk.Entry(frame, textvariable=fields[key], show="•", width=28).grid(row=row, column=1, pady=4)
+        message = ttk.Label(frame, foreground=theme.AMBER)
+        message.grid(row=3, column=0, columnspan=2, sticky="w")
+
+        def save():
+            if fields["new"].get() != fields["again"].get():
+                message.config(text="The new passwords are not the same.")
+                return
+            try:
+                self.vault.change_password(fields["old"].get(), fields["new"].get())
+            except vault.VaultError as error:
+                message.config(text=str(error))
+                return
+            dialog.destroy()
+            messagebox.showinfo("Vault", "The password is changed.", parent=self)
+
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=4, column=0, columnspan=2, sticky="e", pady=(theme.px(12), 0))
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="right")
+        ttk.Button(buttons, text="Change", style=theme.accent(), command=save).pack(side="right", padx=6)
+        dialog.bind("<Escape>", lambda _: dialog.destroy())
+        dialog.bind("<Return>", lambda _: save())
+        self.vault_touch()
+        dialog.grab_set()
 
     # --- History tab ---
 

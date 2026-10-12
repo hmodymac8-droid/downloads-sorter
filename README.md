@@ -53,6 +53,7 @@ This produces `DownloadsSorterSetup.exe`, a standard Windows setup wizard in Eng
 | `duplicates.py` | The duplicate finder: the five ways of matching files, including similar song and video names |
 | `cleaner.py` | The cleaner: finds temporary files, browser caches, crash reports and other junk |
 | `booster.py` | The booster: startup apps, memory-hungry programs and the power plan |
+| `vault.py` | The vault: password-protected, encrypted storage for private files |
 | `sort_gui.pyw` | The windows: control panel, report window, and the program's entry point |
 | `theme.py` | Look and feel: dark theme, sidebar, colour tiles, display scaling |
 | `installer.iss` | The setup wizard (Inno Setup script) |

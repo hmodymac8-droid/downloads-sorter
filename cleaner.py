@@ -104,7 +104,7 @@ def scan(keys: list[str], cancel: threading.Event, progress=lambda text: None) -
             if not root.is_dir():
                 continue
             found.folders.append(root)
-            progress(f"Scanning {category.label.lower()}…")
+            progress(f"Scanning: {category.label}…")
             for folder, dirs, files in os.walk(root, onerror=lambda error: None):
                 if cancel.is_set():
                     raise Cancelled

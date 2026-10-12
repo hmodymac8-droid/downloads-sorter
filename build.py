@@ -1,6 +1,6 @@
 """Build DownloadsSorterSetup.exe, a standard Windows setup wizard.
 
-Needs:  py -m pip install pyinstaller pystray pillow sv-ttk
+Needs:  py -m pip install pyinstaller pystray pillow sv-ttk cryptography
         Inno Setup 6 (https://jrsoftware.org/isinfo.php, or: winget install JRSoftware.InnoSetup)
 Run make_icon.py first if icon.ico is missing.
 

@@ -227,6 +227,178 @@ EXACT = {
     "Scan stopped.": "توقف الفحص.",
     "Stopping…": "جارٍ الإيقاف…",
     "The scan failed.": "فشل الفحص.",
+
+    # Cleaner, Booster and Vault pages
+    'Cleaner':
+        'المنظّف',
+    'Booster':
+        'المسرّع',
+    'Vault':
+        'الخزنة',
+    'Tick what to look for, then click Scan. Nothing is deleted until you click Clean.':
+        'حدد ما تريد البحث عنه ثم انقر «فحص». لن يُحذف شيء حتى تنقر «تنظيف».',
+    'Clean checked':
+        'تنظيف المحدد',
+    'What to clean':
+        'ما سيتم تنظيفه',
+    'Files':
+        'الملفات',
+    'Details':
+        'التفاصيل',
+    'Your temporary files':
+        'ملفاتك المؤقتة',
+    'Left behind by installers and programs (%TEMP%)':
+        'ملفات تتركها برامج التثبيت والبرامج الأخرى (%TEMP%)',
+    'Windows temporary files':
+        'ملفات ويندوز المؤقتة',
+    'C:\\Windows\\Temp (some files need administrator rights)':
+        'C:\\Windows\\Temp (بعض الملفات تحتاج صلاحيات المسؤول)',
+    'Browser caches':
+        'ذاكرة التخزين المؤقت للمتصفحات',
+    'Chrome, Edge, Brave, Vivaldi, Opera and Firefox. Close the browsers first; sign-ins and history are kept':
+        'كروم وإيدج وبريف وفيفالدي وأوبرا وفايرفوكس. أغلق المتصفحات أولًا؛ تسجيلات الدخول والسجل تبقى كما هي',
+    'Crash reports and dumps':
+        'تقارير الأعطال وملفات التفريغ',
+    'Windows Error Reporting files and program crash dumps':
+        'ملفات الإبلاغ عن أخطاء ويندوز وملفات تفريغ أعطال البرامج',
+    'Thumbnail cache':
+        'ذاكرة الصور المصغرة',
+    'Explorer rebuilds it as needed (files in use are skipped)':
+        'يعيد مستكشف الملفات إنشاءها عند الحاجة (الملفات قيد الاستخدام تُتخطى)',
+    'Windows Update downloads':
+        'تنزيلات تحديثات ويندوز',
+    'Already-installed update files (needs administrator rights)':
+        'ملفات تحديثات مثبتة مسبقًا (تحتاج صلاحيات المسؤول)',
+    'Tick at least one item to look for.':
+        'حدد عنصرًا واحدًا على الأقل للبحث عنه.',
+    'Looking for junk files…':
+        'جارٍ البحث عن الملفات غير الضرورية…',
+    'Nothing to clean in the ticked items.':
+        'لا يوجد ما يُنظَّف في العناصر المحددة.',
+    'Something went wrong.':
+        'حدث خطأ ما.',
+    'Cleaning…':
+        'جارٍ التنظيف…',
+    'Stopped before the end.':
+        'توقف قبل الانتهاء.',
+    'Startup apps':
+        'تطبيقات بدء التشغيل',
+    'Running programs':
+        'البرامج قيد التشغيل',
+    'Power plan':
+        'خطة الطاقة',
+    'Turn on':
+        'تشغيل',
+    'Turn off':
+        'إيقاف',
+    'App':
+        'التطبيق',
+    'Where':
+        'المكان',
+    'Command':
+        'الأمر',
+    'On':
+        'يعمل',
+    'Off':
+        'متوقف',
+    'Registry (you)':
+        'السجل (أنت)',
+    'Registry (all users)':
+        'السجل (كل المستخدمين)',
+    'Registry (all users, 32-bit)':
+        'السجل (كل المستخدمين، 32 بت)',
+    'Startup folder (you)':
+        'مجلد بدء التشغيل (أنت)',
+    'Startup folder (all users)':
+        'مجلد بدء التشغيل (كل المستخدمين)',
+    'End selected':
+        'إنهاء المحدد',
+    'Save your work first: ending a program closes it without asking.':
+        'احفظ عملك أولًا: إنهاء البرنامج يغلقه دون سؤال.',
+    'Program':
+        'البرنامج',
+    'Copies':
+        'النسخ',
+    'Memory':
+        'الذاكرة',
+    'Part of Windows':
+        'جزء من ويندوز',
+    'High performance keeps the processor at full speed: faster, but it uses more power. Balanced saves power while the PC is idle.':
+        'الأداء العالي يُبقي المعالج بأقصى سرعة: أسرع لكنه يستهلك طاقة أكثر. المتوازن يوفر الطاقة عندما يكون الجهاز خاملًا.',
+    'Use this plan':
+        'استخدام هذه الخطة',
+    'Select one or more apps first.':
+        'حدد تطبيقًا واحدًا أو أكثر أولًا.',
+    'Some apps could not be changed.':
+        'تعذر تغيير بعض التطبيقات.',
+    'Select one or more programs that are not part of Windows.':
+        'حدد برنامجًا واحدًا أو أكثر ليس جزءًا من ويندوز.',
+    'End programs':
+        'إنهاء البرامج',
+    'Keep private files here. Files you add are encrypted with your password and removed from where they were, so nobody can open them unless they know the password.':
+        'احفظ ملفاتك الخاصة هنا. تُشفَّر الملفات التي تضيفها بكلمة المرور وتُزال من مكانها الأصلي، فلا يستطيع أحد فتحها إلا من يعرف كلمة المرور.',
+    'The vault is locked. Enter your password to see and open its files.':
+        'الخزنة مقفلة. أدخل كلمة المرور لعرض ملفاتها وفتحها.',
+    'Password':
+        'كلمة المرور',
+    'Type it again':
+        'أعد كتابتها',
+    'The two passwords are not the same.':
+        'كلمتا المرور غير متطابقتين.',
+    'Creating the vault…':
+        'جارٍ إنشاء الخزنة…',
+    'Unlocking…':
+        'جارٍ الفتح…',
+    'Create vault':
+        'إنشاء الخزنة',
+    'Unlock':
+        'فتح القفل',
+    "Write the password down somewhere safe. If it is forgotten, the files in the vault can't be recovered by anyone.":
+        'اكتب كلمة المرور في مكان آمن. إذا نُسيت فلن يستطيع أحد استعادة الملفات الموجودة في الخزنة.',
+    'Wrong password.':
+        'كلمة المرور غير صحيحة.',
+    'A vault already exists.':
+        'توجد خزنة بالفعل.',
+    "The vault's file list is damaged.":
+        'قائمة ملفات الخزنة تالفة.',
+    'Add files…':
+        'إضافة ملفات…',
+    'Move out…':
+        'إخراج…',
+    'Lock':
+        'قفل',
+    'Change password…':
+        'تغيير كلمة المرور…',
+    'Added':
+        'تاريخ الإضافة',
+    'Came from':
+        'المصدر',
+    'Select one or more files first.':
+        'حدد ملفًا واحدًا أو أكثر أولًا.',
+    'Wait for the current job to finish first.':
+        'انتظر حتى تنتهي العملية الحالية أولًا.',
+    'Files to move into the vault':
+        'الملفات التي ستُنقل إلى الخزنة',
+    'Opened. Changes you save are kept in the vault when it locks; the open copy is removed then.':
+        'تم الفتح. التغييرات التي تحفظها تُحفظ في الخزنة عند قفلها، ثم تُحذف النسخة المفتوحة.',
+    'Move out':
+        'إخراج',
+    'Move the files to':
+        'نقل الملفات إلى',
+    'Delete from vault':
+        'الحذف من الخزنة',
+    'Change vault password':
+        'تغيير كلمة مرور الخزنة',
+    'Current password':
+        'كلمة المرور الحالية',
+    'New password':
+        'كلمة المرور الجديدة',
+    'Change':
+        'تغيير',
+    'The new passwords are not the same.':
+        'كلمتا المرور الجديدتان غير متطابقتين.',
+    'The password is changed.':
+        'تم تغيير كلمة المرور.',
 }
 
 TEMPLATES = {
@@ -305,4 +477,62 @@ TEMPLATES = {
     "None of the listed files are in\n{0}": "لا يوجد أي من الملفات المعروضة في\n{0}",
     "Not a folder:\n{0}": "ليس مجلدًا:\n{0}",
     "The scan failed:\n{0}": "فشل الفحص:\n{0}",
+
+    # Cleaner, Booster and Vault pages
+    'Only files left untouched for {0} hours are included. Everything cleaned is listed in History.':
+        'تُشمل فقط الملفات التي لم تتغير منذ {0} ساعة. كل ما يُنظَّف يظهر في «السجل».',
+    'Scanning: {0}…':
+        'جارٍ فحص: {0}…',
+    '{0} file(s), {1} can be cleaned.':
+        'يمكن تنظيف {0} ملف بحجم {1}.',
+    'Cleaning {0} of {1}…':
+        'جارٍ تنظيف {0} من {1}…',
+    'Clean {0} file(s) ({1})?\n\nFiles a program is using are skipped. Deleting for good frees the space now; the Recycle Bin holds on to it until it is emptied.':
+        'هل تريد تنظيف {0} ملف ({1})؟\n\nالملفات التي يستخدمها برنامج ما تُتخطى. الحذف النهائي يحرر المساحة فورًا، أما سلة المحذوفات فتحتفظ بها حتى تُفرَّغ.',
+    'Cleaned {0} file(s), {1} deleted for good. They are listed in History.':
+        'تم تنظيف {0} ملف، وحُذف {1} نهائيًا. تظهر في «السجل».',
+    'Cleaned {0} file(s), {1} sent to the Recycle Bin. They are listed in History.':
+        'تم تنظيف {0} ملف، وأُرسل {1} إلى سلة المحذوفات. تظهر في «السجل».',
+    '{0} file(s) were skipped because a program is using them or they need administrator rights.':
+        'تم تخطي {0} ملف لأن برنامجًا يستخدمها أو لأنها تحتاج صلاحيات المسؤول.',
+    'Memory in use: {0} of {1} ({2}%)':
+        'الذاكرة المستخدمة: {0} من {1} ({2}%)',
+    '{0} of {1} start with Windows. Turning one off keeps it installed.':
+        '{0} من {1} تبدأ مع ويندوز. إيقاف أحدها لا يحذفه.',
+    '{0}  (in use)':
+        '{0}  (المستخدمة حاليًا)',
+    '{0}: it is set up for all users, so changing it needs administrator rights':
+        '{0}: مُعدّ لكل المستخدمين، لذا يحتاج تغييره صلاحيات المسؤول',
+    'End these programs now? Unsaved work in them is lost.\n\n{0}':
+        'هل تريد إنهاء هذه البرامج الآن؟ سيضيع العمل غير المحفوظ فيها.\n\n{0}',
+    'Ended {0} program(s), about {1} freed.':
+        'تم إنهاء {0} برنامج، وتحرر نحو {1}.',
+    'Use a password of at least {0} characters.':
+        'استخدم كلمة مرور من {0} أحرف على الأقل.',
+    '{0} file(s), {1}. Locks itself after {2} minutes without use.':
+        '{0} ملف، {1}. تُقفل تلقائيًا بعد {2} دقائق دون استخدام.',
+    'Showing {0} of {1} file(s), {2}. Locks itself after {3} minutes without use.':
+        'عرض {0} من {1} ملف، {2}. تُقفل تلقائيًا بعد {3} دقائق دون استخدام.',
+    'Adding {0} of {1}: {2}':
+        'جارٍ إضافة {0} من {1}: {2}',
+    'Moving out {0} of {1}: {2}':
+        'جارٍ إخراج {0} من {1}: {2}',
+    'Move {0} file(s) into the vault?\n\nEach file is encrypted, checked, and then removed from where it is now (not to the Recycle Bin, which would keep a readable copy).':
+        'هل تريد نقل {0} ملف إلى الخزنة؟\n\nيُشفَّر كل ملف ويُتحقق منه ثم يُزال من مكانه الحالي (وليس إلى سلة المحذوفات، لأنها ستحتفظ بنسخة مقروءة).',
+    'Moved {0} file(s) into the vault.':
+        'تم نقل {0} ملف إلى الخزنة.',
+    'Move {0} file(s) out of the vault, back to the folder each came from?\n\nYes: back where they came from\nNo: choose a folder':
+        'هل تريد إخراج {0} ملف من الخزنة وإعادتها إلى مجلداتها الأصلية؟\n\nنعم: إلى مكانها الأصلي\nلا: اختيار مجلد',
+    'Moved {0} file(s) out of the vault. They are normal, readable files again.':
+        'تم إخراج {0} ملف من الخزنة. أصبحت ملفات عادية يمكن قراءتها.',
+    "Delete {0} file(s) from the vault for good? They can't be brought back.\n\n{1}":
+        'هل تريد حذف {0} ملف من الخزنة نهائيًا؟ لا يمكن استعادتها.\n\n{1}',
+    'Deleted {0} file(s) from the vault.':
+        'تم حذف {0} ملف من الخزنة.',
+    'Could not open:\n{0}':
+        'تعذر الفتح:\n{0}',
+    'Locked, but:\n\n{0}':
+        'تم القفل، ولكن:\n\n{0}',
+    '{0} is still open in another program; close it and lock the vault again.':
+        '{0} لا يزال مفتوحًا في برنامج آخر؛ أغلقه ثم اقفل الخزنة مرة أخرى.',
 }
