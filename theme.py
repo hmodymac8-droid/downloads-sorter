@@ -173,6 +173,35 @@ def tile(label: str = "", group: str = "", faded: bool = False):
     return _tile_cache[key]
 
 
+def app_icon(size: int):
+    """The app icon as an image for a label, `size` pixels at 100% scaling ("" without Pillow)."""
+    if Image is None or not ICON_FILE.exists():
+        return ""
+    key = ("icon", size, scale)
+    if key not in _tile_cache:
+        icon = Image.open(ICON_FILE)
+        icon.size = max(icon.info.get("sizes", [icon.size]))  # pick the largest picture in the .ico
+        _tile_cache[key] = ImageTk.PhotoImage(icon.convert("RGBA").resize((px(size), px(size)), Image.LANCZOS))
+    return _tile_cache[key]
+
+
+class Splash(tk.Toplevel):
+    """A small borderless card shown in the middle of the screen while the program starts."""
+
+    def __init__(self, parent: tk.Tk, name: str, detail: str):
+        super().__init__(parent)
+        self.overrideredirect(True)  # no title bar or border
+        self.configure(background=SIDEBAR, highlightthickness=1, highlightbackground="#333333")
+        width, height = px(380), px(250)
+        self.geometry(f"{width}x{height}+{(self.winfo_screenwidth() - width) // 2}"
+                      f"+{(self.winfo_screenheight() - height) // 2}")
+        tk.Label(self, image=app_icon(84), background=SIDEBAR).pack(pady=(px(34), px(14)))
+        tk.Label(self, text=name, background=SIDEBAR, foreground=TEXT, font=("Segoe UI Semibold", 16)).pack()
+        tk.Label(self, text=detail, background=SIDEBAR, foreground=MUTED, font=("Segoe UI", 10)).pack(pady=(px(4), 0))
+        self.attributes("-topmost", True)
+        self.update()  # paint now; the main window is still being built
+
+
 class Sidebar(tk.Frame):
     """Vertical navigation: an icon and a name per page, with a marker on the current one."""
 

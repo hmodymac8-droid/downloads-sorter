@@ -18,6 +18,8 @@ from collections import defaultdict
 from pathlib import Path
 
 APP_NAME = "Downloads Sorter"
+VERSION = "1.4"  # must match the tag of the GitHub release this is published as (v1.4)
+GITHUB_REPO = "hmodymac8-droid/downloads-sorter"  # where updates are looked for
 FROZEN = getattr(sys, "frozen", False)  # True inside the packaged .exe
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
 # Settings live outside the program folder so reinstalling keeps them.
@@ -48,6 +50,7 @@ DEFAULT_CONFIG = {
     "ignore": [],  # file names or patterns (*.torrent) that are never moved
     "paused_until": "",  # "YYYY-MM-DD HH:MM"; automatic runs wait until then
     "after_run": "window",  # "window" = report window, "notify" = tray notification only
+    "auto_update": False,  # True = install new versions by itself; False = notify and offer
 }
 # Partial downloads, shortcuts and system files that must never be moved.
 SKIP_EXTENSIONS = {".crdownload", ".part", ".partial", ".download", ".opdownload", ".tmp", ".lnk", ".url"}
@@ -573,6 +576,76 @@ def open_report() -> None:
         launch("--report")
 
 
+# --- updates (from the project's GitHub releases) ---
+
+UPDATE_MARKER = DATA_DIR / "updated.txt"  # written by the installer after a silent update
+UPDATE_CHECK_HOURS = 24
+
+
+def parse_version(text: str) -> tuple[int, ...]:
+    """"v1.10" -> (1, 10), so versions compare as numbers, not text."""
+    return tuple(int(part) for part in text.lstrip("vV").split(".") if part.isdigit())
+
+
+def check_for_update() -> dict | None:
+    """The newest release if it is newer than this program, else None.
+
+    Returns {"version", "url", "size", "page"}; any network problem counts as
+    "no update" so being offline never causes an error.
+    """
+    import urllib.request
+
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "DownloadsSorter"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            release = json.load(response)
+        if parse_version(release["tag_name"]) <= parse_version(VERSION):
+            return None
+        asset = next(a for a in release["assets"] if a["name"].lower().endswith("setup.exe"))
+        return {"version": release["tag_name"].lstrip("vV"), "url": asset["browser_download_url"],
+                "size": asset["size"], "page": release["html_url"]}
+    except (OSError, ValueError, KeyError, StopIteration):
+        return None
+
+
+def download_update(update: dict) -> Path:
+    """Download the release's installer to a temp folder and return its path."""
+    import tempfile
+    import urllib.request
+
+    folder = Path(tempfile.gettempdir()) / "DownloadsSorterUpdate"
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"DownloadsSorterSetup-{update['version']}.exe"
+    if not target.exists() or target.stat().st_size != update["size"]:
+        request = urllib.request.Request(update["url"], headers={"User-Agent": "DownloadsSorter"})
+        with urllib.request.urlopen(request, timeout=60) as response, open(target, "wb") as file:
+            shutil.copyfileobj(response, file)
+    if target.stat().st_size != update["size"]:
+        target.unlink(missing_ok=True)
+        raise OSError("the download was incomplete")
+    return target
+
+
+def apply_update(installer: Path, reopen: bool = False) -> None:
+    """Run the downloaded installer without its window. It closes this program,
+    replaces it and starts it again, so the caller should exit right after."""
+    subprocess.Popen([str(installer), "--update"] + (["--reopen"] if reopen else []),
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def is_installed() -> bool:
+    """True for the installed program; a copy run from source can't replace itself."""
+    return FROZEN and APP_DIR == INSTALL_DIR.resolve()
+
+
+def window_is_open() -> bool:
+    """True if a Downloads Sorter window is open besides the background sorter."""
+    output = run_quiet(["tasklist", "/FI", f"IMAGENAME eq {EXE_NAME}", "/FO", "CSV", "/NH"]).stdout
+    return output.lower().count(EXE_NAME.lower()) > 1
+
+
 # --- background sorter with its tray icon ---
 
 class Background:
@@ -582,6 +655,55 @@ class Background:
         self.stopping = False
         self.icon = None  # the tray icon, when pystray is available
         self.shown_state = None
+        self.next_update_check = time.time() + 60  # first look a minute after starting
+        self.update = None  # the newer release, once one has been found
+
+    def check_updates(self, config: dict) -> None:
+        if UPDATE_MARKER.exists():  # we have just been updated
+            try:
+                self.notify(f"Updated to version {UPDATE_MARKER.read_text().strip()}.")
+                UPDATE_MARKER.unlink()
+            except OSError:
+                pass
+        if time.time() < self.next_update_check:
+            return
+        self.next_update_check = time.time() + UPDATE_CHECK_HOURS * 3600
+        update = check_for_update()
+        if not update:
+            return
+        log.info("Version %s is available", update["version"])
+        first_time = not self.update or self.update["version"] != update["version"]
+        self.update = update
+        if self.icon:
+            self.icon.update_menu()  # reveals the "Install version ..." item
+        # Updating closes every window of the program, so the automatic kind waits until none is open.
+        if config["auto_update"] and is_installed():
+            if not window_is_open():
+                self.install_update()
+                return
+            self.next_update_check = time.time() + 3600  # try again in an hour
+        if first_time:
+            self.notify(f"Version {update['version']} is available. Right-click this icon and choose "
+                        f"Install, or open {APP_NAME}.")
+
+    def install_update(self, *_) -> None:
+        """Download the new version and hand over to its installer (also a tray menu action)."""
+        if not self.update:
+            return
+        if not is_installed():  # running from source: nothing to replace, so show the release page
+            import webbrowser
+
+            webbrowser.open(self.update["page"])
+            return
+        self.notify(f"Downloading version {self.update['version']}…")
+        try:
+            installer = download_update(self.update)
+        except OSError as error:
+            log.warning("Update download failed: %s", error)
+            self.notify("The update could not be downloaded. It will be tried again later.")
+            return
+        log.info("Installing update %s", self.update["version"])
+        apply_update(installer)
 
     def loop(self) -> None:
         last_run = 0.0
@@ -591,6 +713,7 @@ class Background:
             if interval <= 0:
                 log.info("Interval is 0: automatic sorting is disabled; exiting")
                 break
+            self.check_updates(config)
             due = time.time() - last_run >= interval * 60 and not is_paused(config)
             if self.sort_now or due:
                 self.sort_now = False
@@ -682,19 +805,29 @@ def run_background() -> None:
             log.info("pystray is not installed: running without a tray icon")
             background.loop()
             return
-        item = pystray.MenuItem
-        background.icon = pystray.Icon("DownloadsSorter", tray_image(), APP_NAME, pystray.Menu(
-            item(f"Open {APP_NAME}", lambda *_: launch(), default=True),
-            item("Sort now", background.request_sort),
-            item(lambda _: "Resume sorting" if is_paused(load_config()) else "Pause for today", background.toggle_pause),
-            item("Show report", lambda *_: open_report()),
-            pystray.Menu.SEPARATOR,
-            item("Exit (starts again at next sign-in)", background.quit),
-        ))
+        background.icon = make_tray_icon(pystray, background)
         threading.Thread(target=background.loop, daemon=True).start()
         background.icon.run()
     finally:
         PID_FILE.unlink(missing_ok=True)
+
+
+def make_tray_icon(pystray, background: Background):
+    """The tray icon with its right-click menu; double-click opens the program."""
+    item = pystray.MenuItem
+    return pystray.Icon("DownloadsSorter", tray_image(), APP_NAME, pystray.Menu(
+        item(f"Open {APP_NAME}", lambda *_: launch(), default=True),
+        item("Sort now", background.request_sort),
+        item(lambda _: "Resume sorting" if is_paused(load_config()) else "Pause for today", background.toggle_pause),
+        item("Show report", lambda *_: open_report()),
+        # Only shown once a newer version is found. Runs on its own thread so the
+        # menu doesn't freeze during the download.
+        item(lambda _: f"Install version {background.update['version']}" if background.update else "Install update",
+             lambda *_: threading.Thread(target=background.install_update, daemon=True).start(),
+             visible=lambda _: background.update is not None),
+        pystray.Menu.SEPARATOR,
+        item("Exit (starts again at next sign-in)", background.quit),
+    ))
 
 
 # --- install locations (used by installer.py and by --uninstall) ---

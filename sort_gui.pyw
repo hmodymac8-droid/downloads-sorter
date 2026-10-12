@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -194,11 +195,15 @@ class CategoryDialog(tk.Toplevel):
 
 
 class App(tk.Tk):
-    def __init__(self):
+    def __init__(self, splash=False):
         super().__init__()
         self.title(core.APP_NAME)
+        if splash:
+            self.withdraw()  # stay hidden behind the splash card until everything is built
         theme.apply(self)
+        splash_card = theme.Splash(self, core.APP_NAME, f"Version {core.VERSION}") if splash else None
         theme.set_size(self, 1200, 760, 980, 640)
+        self.update_info = None  # the newer release, once a check has found one
         self.config_data = core.load_config()
         self.moves = {}  # preview row id -> planned move
         for category in self.config_data["categories"]:
@@ -219,6 +224,7 @@ class App(tk.Tk):
             ("duplicates", "", "Duplicates", self.build_duplicates_tab),
             ("history", "", "History", self.build_history_tab),
             ("settings", "", "Settings", self.build_settings_tab),
+            ("about", "", "About", self.build_about_tab),
         ):
             page = ttk.Frame(self.pages, padding=(theme.px(22), theme.px(16), theme.px(22), 0))
             page.grid(row=0, column=0, sticky="nsew")
@@ -227,9 +233,131 @@ class App(tk.Tk):
             self.page_frames[key] = page
             self.sidebar.add(key, glyph, title)
 
+        # Shown across the top only when a newer version exists.
+        self.banner = ttk.Frame(main, padding=(theme.px(22), theme.px(10)))
+        self.banner_label = ttk.Label(self.banner)
+        self.banner_label.pack(side="left")
+        ttk.Button(self.banner, text="Later", command=self.banner.pack_forget).pack(side="right")
+        ttk.Button(self.banner, text="Update now", style=theme.accent(),
+                   command=self.install_update).pack(side="right", padx=6)
+
         self.refresh_preview()
         self.refresh_background_status(repeat=True)
         self.show_page("preview")
+        self.after(1500, self.check_updates)
+        if splash_card:
+            def reveal():
+                splash_card.destroy()
+                self.deiconify()
+                theme.dark_titlebar(self)
+            self.after(1300, reveal)
+
+    # --- About page and updates ---
+
+    def build_about_tab(self, parent):
+        tab = ttk.Frame(parent)
+        head = ttk.Frame(tab)
+        head.pack(fill="x", pady=(theme.px(6), theme.px(14)))
+        ttk.Label(head, image=theme.app_icon(72)).pack(side="left", padx=(0, theme.px(18)))
+        text = ttk.Frame(head)
+        text.pack(side="left")
+        ttk.Label(text, text=core.APP_NAME, style="Title.TLabel").pack(anchor="w")
+        ttk.Label(text, text=f"Version {core.VERSION}", foreground="gray").pack(anchor="w")
+        ttk.Label(tab, wraplength=theme.px(620), justify="left", text=(
+            "Keeps your Downloads folder tidy by moving old files into category folders, "
+            "automatically or only when you say so. Every change is logged and can be undone."
+        )).pack(anchor="w")
+        links = ttk.Frame(tab)
+        links.pack(anchor="w", pady=theme.px(14))
+        ttk.Button(links, text="GitHub page", command=lambda: webbrowser.open(
+            f"https://github.com/{core.GITHUB_REPO}")).pack(side="left")
+        ttk.Button(links, text="Open settings and log folder", command=self.open_data_folder).pack(side="left", padx=6)
+
+        ttk.Separator(tab).pack(fill="x", pady=theme.px(8))
+        ttk.Label(tab, text="Updates", style="Title.TLabel").pack(anchor="w", pady=(theme.px(6), theme.px(6)))
+        self.update_status = ttk.Label(tab, text="Not checked yet.")
+        self.update_status.pack(anchor="w")
+        buttons = ttk.Frame(tab)
+        buttons.pack(anchor="w", pady=theme.px(10))
+        self.check_button = ttk.Button(buttons, text="Check for updates", command=self.check_updates)
+        self.check_button.pack(side="left")
+        self.update_button = ttk.Button(buttons, text="Update now", style=theme.accent(),
+                                        command=self.install_update, state="disabled")
+        self.update_button.pack(side="left", padx=6)
+        self.auto_update = tk.BooleanVar(value=self.config_data["auto_update"])
+        ttk.Checkbutton(tab, text="Install new versions automatically", variable=self.auto_update,
+                        style=theme.switch(),
+                        command=lambda: self.update_config(auto_update=self.auto_update.get())).pack(anchor="w")
+        ttk.Label(tab, foreground="gray", wraplength=theme.px(620), justify="left", text=(
+            "Off: you get a notification and choose when to update. On: while automatic sorting is running, "
+            "new versions install by themselves when no Downloads Sorter window is open."
+        )).pack(anchor="w", pady=(theme.px(4), 0))
+        return tab
+
+    def open_data_folder(self):
+        core.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        os.startfile(core.DATA_DIR)
+
+    def check_updates(self):
+        self.check_button.config(state="disabled")
+        self.update_status.config(text="Checking for updates…")
+        result = []
+        # The network call runs off the window's thread so the window never freezes.
+        thread = threading.Thread(target=lambda: result.append(core.check_for_update()), daemon=True)
+        thread.start()
+
+        def done():
+            if thread.is_alive():
+                self.after(200, done)
+                return
+            self.check_button.config(state="normal")
+            self.update_info = result[0] if result else None
+            if self.update_info:
+                message = f"Version {self.update_info['version']} is available (you have {core.VERSION})."
+                self.banner_label.config(text=message)
+                self.banner.pack(side="top", fill="x", before=self.pages)
+                self.update_button.config(state="normal")
+            else:
+                message = f"No newer version found. You have version {core.VERSION}."
+            self.update_status.config(text=message)
+
+        done()
+
+    def install_update(self):
+        update = self.update_info
+        if not update:
+            return
+        if not core.is_installed():  # run from source: nothing to replace, so show the release page
+            webbrowser.open(update["page"])
+            return
+        if not messagebox.askyesno("Update", f"Download and install version {update['version']} now?\n\n"
+                                   f"{core.APP_NAME} will close and reopen by itself."):
+            return
+        self.update_button.config(state="disabled")
+        self.banner.pack_forget()
+        self.update_status.config(text=f"Downloading version {update['version']}…")
+        result = []
+
+        def download():
+            try:
+                result.append(core.download_update(update))
+            except OSError as error:
+                result.append(error)
+
+        thread = threading.Thread(target=download, daemon=True)
+        thread.start()
+
+        def done():
+            if thread.is_alive():
+                self.after(300, done)
+            elif isinstance(result[0], OSError):
+                self.update_button.config(state="normal")
+                self.update_status.config(text=f"The download failed: {result[0]}")
+            else:
+                core.apply_update(result[0], reopen=True)
+                self.destroy()  # the installer needs every window closed
+
+        done()
 
     def show_page(self, key):
         self.page_frames[key].tkraise()
@@ -857,4 +985,4 @@ if __name__ == "__main__":
     elif mode == "--uninstall":
         uninstall()
     else:
-        App().mainloop()
+        App(splash=True).mainloop()
