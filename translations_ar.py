@@ -399,6 +399,144 @@ EXACT = {
         'كلمتا المرور الجديدتان غير متطابقتين.',
     'The password is changed.':
         'تم تغيير كلمة المرور.',
+
+    # redesigned workspace (sidebar, headers, summary cards, panels)
+    'WORKSPACE':
+        'مساحة العمل',
+    'Workspace':
+        'مساحة العمل',
+    'Help & about':
+        'المساعدة وحول',
+    'Local storage':
+        'مساحة التخزين',
+    'Donate':
+        'تبرّع',
+    'YOUR DIGITAL SPACE, SORTED':
+        'مساحتك الرقمية، مرتّبة',
+    'Automatic sorting on':
+        'الفرز التلقائي يعمل',
+    'Automatic sorting off':
+        'الفرز التلقائي متوقف',
+    'Automatic sorting paused':
+        'الفرز التلقائي متوقف مؤقتًا',
+    'Let’s tidy things up.':
+        'لنرتّب الأشياء.',
+    'A little organization. A lot more peace of mind.':
+        'قليل من الترتيب، وراحة بال أكبر بكثير.',
+    'Find extra copies. Keep what matters.':
+        'اعثر على النسخ الزائدة واحتفظ بما يهم.',
+    'Clear the clutter. Make room for what’s next.':
+        'تخلّص من الفوضى وأفسح المجال لما هو قادم.',
+    'A lighter startup. A smoother day.':
+        'بدء تشغيل أخف، ويوم أكثر سلاسة.',
+    'Your private space. Under your control.':
+        'مساحتك الخاصة، تحت سيطرتك.',
+    'Every change, all in one place.':
+        'كل تغيير، في مكان واحد.',
+    'Your folders. Your rules.':
+        'مجلداتك، وقواعدك.',
+    'A tidy space for everything you download.':
+        'مكان مرتّب لكل ما تنزّله.',
+    'Organize files':
+        'ترتيب الملفات',
+    'Ready to organize':
+        'جاهزة للترتيب',
+    'Space to sort':
+        'المساحة المراد ترتيبها',
+    'Destination folders':
+        'مجلدات الوجهة',
+    'A cleaner Downloads folder':
+        'مجلد تنزيلات أنظف',
+    'Everything in the right place':
+        'كل شيء في مكانه الصحيح',
+    'Any age':
+        'بأي عمر',
+    'files':
+        'ملفات',
+    'Downloads':
+        'التنزيلات',
+    'Search files…':
+        'ابحث في الملفات…',
+    'Show all files':
+        'عرض كل الملفات',
+    'Sort all now':
+        'ترتيب الكل الآن',
+    'Exclude':
+        'استبعاد',
+    'File name':
+        'اسم الملف',
+    'Age':
+        'العمر',
+    'Destination':
+        'الوجهة',
+    'All tidied up! No files are old enough to move yet.':
+        'كل شيء مرتّب! لا توجد ملفات قديمة بما يكفي لنقلها بعد.',
+    '\ue72e  Your files stay on your device. Every move can be undone.':
+        '\ue72e  تبقى ملفاتك على جهازك. ويمكن التراجع عن كل عملية نقل.',
+    'Scan now':
+        'افحص الآن',
+    'Duplicate groups':
+        'مجموعات الملفات المكررة',
+    'Choose where to look and how to compare, then click Scan now.':
+        'اختر مكان البحث وطريقة المقارنة، ثم انقر «افحص الآن».',
+    'Stop scan':
+        'إيقاف الفحص',
+    'Space to recover':
+        'المساحة الممكن استعادتها',
+    'Items selected':
+        'العناصر المحددة',
+    'Last scan':
+        'آخر فحص',
+    'Never':
+        'أبدًا',
+    'Ticked items, after a scan':
+        'العناصر المحددة، بعد الفحص',
+    'Your personal files are untouched':
+        'ملفاتك الشخصية لا تُمس',
+    'Nothing is deleted until you click Clean.':
+        'لن يُحذف شيء حتى تنقر «تنظيف».',
+    'today':
+        'اليوم',
+    'Memory in use':
+        'الذاكرة المستخدمة',
+    'Start with Windows':
+        'تبدأ مع ويندوز',
+    'The plan Windows is using now':
+        'الخطة التي يستخدمها ويندوز الآن',
+    'Create your Vault.':
+        'أنشئ خزنتك.',
+    'Your Vault is locked.':
+        'خزنتك مقفلة.',
+    'Files you add are encrypted with your password and removed from where they were, so nobody can open them unless they know the password.':
+        'تُشفَّر الملفات التي تضيفها بكلمة المرور وتُزال من مكانها الأصلي، فلا يستطيع أحد فتحها إلا من يعرف كلمة المرور.',
+    'Enter your password to see and open your private files.':
+        'أدخل كلمة المرور لعرض ملفاتك الخاصة وفتحها.',
+    'Vault files':
+        'ملفات الخزنة',
+    'Date added':
+        'تاريخ الإضافة',
+    'Source':
+        'المصدر',
+    'Changes logged':
+        'التغييرات المسجلة',
+    'Undo available':
+        'قابلة للتراجع',
+    'Last activity':
+        'آخر نشاط',
+    'Every action leaves a trace':
+        'كل إجراء يترك أثرًا',
+    'Restore files to where they were':
+        'أعد الملفات إلى أماكنها',
+    'Most recent change':
+        'أحدث تغيير',
+    'None':
+        'لا شيء',
+    'Recent activity':
+        'النشاط الأخير',
+    'Search history…':
+        'ابحث في السجل…',
+    'Moved files':
+        'الملفات المنقولة',
 }
 
 TEMPLATES = {
@@ -535,4 +673,28 @@ TEMPLATES = {
         'تم القفل، ولكن:\n\n{0}',
     '{0} is still open in another program; close it and lock the vault again.':
         '{0} لا يزال مفتوحًا في برنامج آخر؛ أغلقه ثم اقفل الخزنة مرة أخرى.',
+
+    # redesigned workspace (sidebar, headers, summary cards, panels)
+    'Organize {0} file(s)':
+        'ترتيب {0} ملف',
+    '{0} file(s)':
+        '{0} ملف',
+    '{0} items':
+        '{0} عناصر',
+    'of {0}':
+        'من {0}',
+    'Older than {0} days':
+        'أقدم من {0} أيام',
+    '{0} file(s) ready to move · {1} total':
+        '{0} ملف جاهز للنقل · الإجمالي {1}',
+    '{0} file(s) of any age · {1} total':
+        '{0} ملف بأي عمر · الإجمالي {1}',
+    '{0}% of {1} total':
+        '{0}% من إجمالي {1}',
+    '{0} GB used':
+        '{0} غيغابايت مستخدمة',
+    'Only files older than {0} hours':
+        'فقط الملفات الأقدم من {0} ساعة',
+    '{0} match(es)':
+        '{0} نتيجة',
 }

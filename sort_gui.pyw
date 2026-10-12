@@ -23,6 +23,7 @@ import vault
 i18n.install(core.language(core.load_config()))
 AFTER_RUN_LABELS = {"window": i18n.tr("Show a report window"), "notify": i18n.tr("Only a tray notification")}
 LANGUAGES = {"": "Automatic", "en": "English", "ar": "العربية"}
+DONATE_URL = "https://paypal.me/mfsafadi"  # from the redesign; shown under the sidebar
 
 
 def format_size(size: int) -> str:
@@ -169,6 +170,23 @@ def add_scrolled_tree(parent, columns, first=None, **options):
     return tree
 
 
+def add_placeholder(entry, variable, text):
+    """Grey hint text inside an empty entry field, gone while it has focus or text."""
+    hint = theme.label(entry, text, theme.MUTED, 9, background=theme.SECONDARY, cursor="xterm")
+    hint.bind("<Button-1>", lambda _: entry.focus_set())
+
+    def update(*_):
+        if variable.get() or entry.focus_get() is entry:
+            hint.place_forget()
+        else:
+            hint.place(x=theme.px(9), rely=0.5, anchor="w")
+
+    variable.trace_add("write", update)
+    entry.bind("<FocusIn>", update, add="+")
+    entry.bind("<FocusOut>", update, add="+")
+    entry.after_idle(update)
+
+
 class CategoryDialog(tk.Toplevel):
     """Add or edit one category."""
 
@@ -264,28 +282,45 @@ class App(tk.Tk):
         self.sidebar.pack(side="left", fill="y")
         main = ttk.Frame(self)
         main.pack(side="left", fill="both", expand=True)
+        self.top_bar = theme.TopBar(main)
+        self.top_bar.pack(side="top", fill="x")
         self.build_status_bar(main)
         self.pages = ttk.Frame(main)
         self.pages.pack(fill="both", expand=True)
         self.pages.rowconfigure(0, weight=1)
         self.pages.columnconfigure(0, weight=1)
         self.page_frames = {}
-        for key, glyph, title, build in (
-            ("preview", "", "Sorter", self.build_preview_tab),
-            ("duplicates", "", "Duplicates", self.build_duplicates_tab),
-            ("cleaner", "\uE74D", "Cleaner", self.build_cleaner_tab),
-            ("booster", "\uE945", "Booster", self.build_booster_tab),
-            ("vault", "\uE72E", "Vault", self.build_vault_tab),
-            ("history", "", "History", self.build_history_tab),
-            ("settings", "", "Settings", self.build_settings_tab),
-            ("about", "", "About", self.build_about_tab),
+        self.page_titles = {}
+        # (key, icon, sidebar name, page title, description, in the sidebar's bottom group, builder)
+        for key, glyph, name, title, description, bottom, build in (
+            ("preview", "", "Sorter", "Let’s tidy things up.",
+             "A little organization. A lot more peace of mind.", False, self.build_preview_tab),
+            ("duplicates", "", "Duplicates", "Duplicates", "Find extra copies. Keep what matters.", False,
+             self.build_duplicates_tab),
+            ("cleaner", "", "Cleaner", "Cleaner", "Clear the clutter. Make room for what’s next.", False,
+             self.build_cleaner_tab),
+            ("booster", "", "Booster", "Booster", "A lighter startup. A smoother day.", False,
+             self.build_booster_tab),
+            ("vault", "", "Vault", "Vault", "Your private space. Under your control.", False,
+             self.build_vault_tab),
+            ("history", "", "History", "History", "Every change, all in one place.", False,
+             self.build_history_tab),
+            ("settings", "", "Settings", "Settings", "Your folders. Your rules.", True, self.build_settings_tab),
+            ("about", "", "Help & about", "About", "A tidy space for everything you download.", True,
+             self.build_about_tab),
         ):
-            page = ttk.Frame(self.pages, padding=(theme.px(22), theme.px(16), theme.px(22), 0))
+            page = ttk.Frame(self.pages, padding=(theme.px(30), theme.px(24), theme.px(30), theme.px(12)))
             page.grid(row=0, column=0, sticky="nsew")
-            ttk.Label(page, text=title, style="Title.TLabel").pack(anchor="w", pady=(0, theme.px(10)))
+            # Builders put the page's main buttons here, on the right of the page header.
+            self.header_actions = theme.page_header(page, title, description)
             build(page).pack(fill="both", expand=True)
             self.page_frames[key] = page
-            self.sidebar.add(key, glyph, title)
+            self.page_titles[key] = i18n.tr(name)
+            # The sidebar draws on a canvas, which the translation hooks don't reach, so it is translated here.
+            self.sidebar.add(key, glyph, i18n.tr(name), bottom=bottom)
+        self.sidebar.show_storage(core.detect_downloads_folder())
+        self.bind("<Configure>", lambda event: theme.fit_height(self) if event.widget is self else None)
+        self.sidebar.show_version(i18n.tr(f"Version {core.VERSION}"), i18n.tr("Donate"), DONATE_URL)
 
         # Shown across the top only when a newer version exists.
         self.banner = ttk.Frame(main, padding=(theme.px(22), theme.px(10)))
@@ -312,7 +347,7 @@ class App(tk.Tk):
         tab = ttk.Frame(parent)
         head = ttk.Frame(tab)
         head.pack(fill="x", pady=(theme.px(6), theme.px(14)))
-        ttk.Label(head, image=theme.app_icon(72)).pack(side="left", padx=(0, theme.px(18)))
+        ttk.Label(head, image=theme.brand_mark(64)).pack(side="left", padx=(0, theme.px(18)))
         text = ttk.Frame(head)
         text.pack(side="left")
         ttk.Label(text, text=core.APP_NAME, style="Title.TLabel").pack(anchor="w")
@@ -328,7 +363,7 @@ class App(tk.Tk):
         ttk.Button(links, text="Open settings and log folder", command=self.open_data_folder).pack(side="left", padx=6)
 
         ttk.Separator(tab).pack(fill="x", pady=theme.px(8))
-        ttk.Label(tab, text="Updates", style="Title.TLabel").pack(anchor="w", pady=(theme.px(6), theme.px(6)))
+        ttk.Label(tab, text="Updates", style="Section.TLabel").pack(anchor="w", pady=(theme.px(6), theme.px(6)))
         self.update_status = ttk.Label(tab, text="Not checked yet.")
         self.update_status.pack(anchor="w")
         buttons = ttk.Frame(tab)
@@ -423,6 +458,7 @@ class App(tk.Tk):
     def show_page(self, key):
         self.page_frames[key].tkraise()
         self.sidebar.select(key)
+        self.top_bar.set_page(self.page_titles[key])
         if key == "history":
             self.refresh_history()  # background runs change it while the window is open
 
@@ -437,68 +473,98 @@ class App(tk.Tk):
 
     def build_preview_tab(self, parent):
         tab = ttk.Frame(parent)
-        top = ttk.Frame(tab)
-        top.pack(fill="x")
-        ttk.Button(top, text="Refresh", command=self.refresh_preview).pack(side="left")
-        self.summary = ttk.Label(top)
-        self.summary.pack(side="left", padx=10)
+        self.move_button = ttk.Button(self.header_actions, text="Organize files", style=theme.accent(),
+                                      command=self.move)
+        self.move_button.pack(side="right")
+        self.preview_stats = theme.stat_row(tab, [("Ready to organize", ""), ("Space to sort", ""),
+                                                  ("Destination folders", "")])
+
+        ttk.Label(tab, text="  Your files stay on your device. Every move can be undone.",
+                  style="Small.TLabel").pack(side="bottom", pady=(theme.px(12), 0))
+        panel = theme.Panel(tab, "Downloads", "")
+        panel.pack(fill="both", expand=True)
+        self.preview_panel = panel
+        self.preview_search = tk.StringVar()
+        self.preview_search.trace_add("write", lambda *_: self.render_preview())
+        search = ttk.Entry(panel.controls, textvariable=self.preview_search, width=22)
+        search.pack(side="left")
+        add_placeholder(search, self.preview_search, "Search files…")
         # Off: only files old enough to move. On: every file that has a destination,
         # so the user can pick new ones to sort by hand.
         self.show_all = tk.BooleanVar(value=False)
-        ttk.Checkbutton(top, text="Show all files (ignore age)", variable=self.show_all,
-                        style=theme.switch(), command=self.refresh_preview).pack(side="right")
+        ttk.Checkbutton(panel.controls, text="Show all files", variable=self.show_all,
+                        style=theme.switch(), command=self.refresh_preview).pack(side="left", padx=theme.px(16))
+        ttk.Button(panel.controls, text="Refresh", command=self.refresh_preview).pack(side="left")
 
-        table = ttk.Frame(tab)
-        table.pack(fill="both", expand=True, pady=8)
-        self.tree = add_scrolled_tree(table, (
-            ("root", "In", 120, "w"), ("age", "Age (days)", 100, "center"),
-            ("size", "Size", 100, "center"), ("destination", "Goes to", 220, "w"),
-        ), first=("File", 380), selectmode="extended")
+        footer = panel.add_footer()
+        self.summary = ttk.Label(footer, style="Muted.TLabel")
+        self.summary.pack(side="left")
+        ttk.Button(footer, text="Move selected", command=self.move_selected).pack(side="right")
+        ttk.Button(footer, text="Exclude", command=self.exclude_selected).pack(side="right", padx=6)
+        ttk.Button(footer, text="Undo last move", command=self.undo).pack(side="right")
+        ttk.Button(footer, text="Sort all now", command=self.sort_all_now).pack(side="right", padx=6)
+
+        self.tree = add_scrolled_tree(panel.body, (
+            ("age", "Age", 90, "w"), ("size", "Size", 100, "w"), ("destination", "Destination", 220, "w"),
+            ("root", "In", 120, "w"),
+        ), first=("File name", 380), selectmode="extended")
         self.tree.bind("<Delete>", lambda _: self.exclude_selected())
         attach_file_menu(self.tree, lambda row: self.moves[row]["source"], self.refresh_preview,
                          extra=[("Move only the selected file(s) now", lambda _: self.move_selected()),
                                 ("Never move this file", self.never_move)])
-
-        bottom = ttk.Frame(tab)
-        bottom.pack(fill="x")
-        ttk.Button(bottom, text="Exclude selected", command=self.exclude_selected).pack(side="left")
-        ttk.Button(bottom, text="Undo last move", command=self.undo).pack(side="left", padx=6)
-        self.move_button = ttk.Button(bottom, text="Move files", style=theme.accent(), command=self.move)
-        self.move_button.pack(side="right")
-        ttk.Button(bottom, text="Move selected", command=self.move_selected).pack(side="right", padx=(6, 6))
-        ttk.Button(bottom, text="Sort ALL files now (ignore age)", command=self.sort_all_now).pack(side="right")
+        self.planned = []  # every planned move; the list shows those matching the search
+        self.excluded = set()  # files taken off the list with Exclude, until the next refresh
         return tab
 
     def refresh_preview(self):
+        self.planned = core.plan_moves(self.config_data, everything=self.show_all.get())
+        self.excluded.clear()
+        self.render_preview()
+        self.refresh_history()
+
+    def render_preview(self):
         self.tree.delete(*self.tree.get_children())
         self.moves.clear()
-        for move in core.plan_moves(self.config_data, everything=self.show_all.get()):
+        search = self.preview_search.get().lower().strip()
+        for move in self.planned:
+            name = move["source"].name
+            if move["source"] in self.excluded or (search and search not in name.lower()):
+                continue
             try:
                 destination = move["folder"].relative_to(move["root"])
             except ValueError:
                 destination = move["folder"]
             row = self.tree.insert(
-                "", "end", text=move["source"].name,
-                image=theme.tile(move["source"].suffix.lstrip("."), move["folder"].name),
-                values=(move["root"].name, f"{move['age']:.0f}", format_size(move["size"]), destination))
+                "", "end", text=name, image=theme.tile(move["source"].suffix.lstrip("."), move["folder"].name),
+                values=(f"{move['age']:.0f} days", format_size(move["size"]), destination, move["root"].name))
             self.moves[row] = move
         self.update_summary()
-        self.refresh_history()
 
     def update_summary(self):
         count = len(self.moves)
-        size = format_size(sum(move["size"] for move in self.moves.values()))
+        size = sum(move["size"] for move in self.moves.values())
         if self.show_all.get():
-            text = f"{count} file(s) of any age ({size}): select the ones to sort" if count else "No files to sort"
+            text = f"{count} file(s) of any age · {format_size(size)} total" if count else "No files to sort"
         else:
-            text = f"{count} file(s) ready to move ({size})" if count else "Nothing to move: no files are old enough yet"
+            text = f"{count} file(s) ready to move · {format_size(size)} total" if count else \
+                "All tidied up! No files are old enough to move yet."
         self.summary.config(text=text)
-        self.move_button.config(text=f"Move {count} file(s)", state="normal" if count else "disabled")
+        self.move_button.config(text=f"Organize {count} file(s)", state="normal" if count else "disabled")
+        self.preview_panel.set_count(f"{count} file(s)")
+        self.sidebar.set_badge("preview", str(count) if count else "")
+        number, unit = format_size(size).split(" ")
+        age = self.config_data["min_age_days"]
+        self.preview_stats[0].set(str(count), "files", "Any age" if self.show_all.get() else f"Older than {age} days")
+        self.preview_stats[1].set(number, unit, "A cleaner Downloads folder")
+        self.preview_stats[2].set(str(len({move["folder"] for move in self.moves.values()})), "",
+                                  "Everything in the right place")
 
     def exclude_selected(self):
         for row in self.tree.selection():
+            move = self.moves.pop(row, None)
+            if move:
+                self.excluded.add(move["source"])
             self.tree.delete(row)
-            self.moves.pop(row, None)
         self.update_summary()
 
     def never_move(self, path):
@@ -571,18 +637,15 @@ class App(tk.Tk):
     def build_duplicates_tab(self, parent):
         settings = self.config_data["duplicates"]
         tab = ttk.Frame(parent)
-        top = ttk.Frame(tab)
-        top.pack(fill="x")
-        self.scan_button = ttk.Button(top, text="Scan", style=theme.accent(), command=self.scan_duplicates)
-        self.scan_button.pack(side="left")
-        self.stop_button = ttk.Button(top, text="Stop", command=self.stop_duplicates_scan, state="disabled")
-        self.stop_button.pack(side="left", padx=6)
-        self.duplicates_summary = ttk.Label(top, text="Choose where to look and how to compare, then click Scan.")
-        self.duplicates_summary.pack(side="left", padx=10)
-        self.duplicates_progress = ttk.Progressbar(top, mode="indeterminate", length=theme.px(160))
+        self.scan_button = ttk.Button(self.header_actions, text="Scan now", style=theme.accent(),
+                                      command=self.scan_duplicates)
+        self.scan_button.pack(side="right")
+        self.stop_button = ttk.Button(self.header_actions, text="Stop", command=self.stop_duplicates_scan,
+                                      state="disabled")
+        self.stop_button.pack(side="right", padx=6)
 
         options = ttk.Frame(tab)
-        options.pack(fill="x", pady=(theme.px(10), 0))
+        options.pack(fill="x")
         options.columnconfigure(2, weight=1)
         self.dup_source = tk.StringVar(value=settings["source"])
         self.dup_folder = tk.StringVar(value=settings["folder"])
@@ -614,8 +677,8 @@ class App(tk.Tk):
         self.dup_extension = tk.StringVar(value=settings["extension"])
         self.dup_name = tk.StringVar(value=settings["name"])
         self.dup_min_mb = tk.StringVar(value=settings["min_mb"])
-        for label, variable, width in (("Extension", self.dup_extension, 8), ("Name contains", self.dup_name, 22),
-                                       ("At least (MB)", self.dup_min_mb, 7)):
+        for label, variable, width in (("Extension", self.dup_extension, 6), ("Name contains", self.dup_name, 12),
+                                       ("At least (MB)", self.dup_min_mb, 5)):
             ttk.Label(filters, text=label).pack(side="left", padx=(0, 4))
             entry = ttk.Entry(filters, textvariable=variable, width=width)
             entry.pack(side="left", padx=(0, 12))
@@ -638,12 +701,14 @@ class App(tk.Tk):
         ttk.Checkbutton(check_actions, text="Include subfolders", variable=self.dup_check_subfolders,
                         style=theme.switch()).pack(side="left", padx=12)
 
-        # Packed before the table so the table, not these buttons, shrinks in a small window.
-        bottom = ttk.Frame(tab)
-        bottom.pack(side="bottom", fill="x")
-        table = ttk.Frame(tab)
-        table.pack(fill="both", expand=True, pady=8)
-        self.duplicates_tree = add_scrolled_tree(table, (
+        panel = theme.Panel(tab, "Duplicate groups", "")
+        panel.pack(fill="both", expand=True, pady=(theme.px(14), 0))
+        self.duplicates_summary = ttk.Label(panel.controls, style="Muted.TLabel",
+                                            text="Choose where to look and how to compare, then click Scan now.")
+        self.duplicates_summary.pack(side="left")
+        self.duplicates_progress = ttk.Progressbar(panel.controls, mode="indeterminate", length=theme.px(140))
+        bottom = panel.add_footer()
+        self.duplicates_tree = add_scrolled_tree(panel.body, (
             ("size", "Size", 90, "center"), ("modified", "Modified", 140, "center"), ("folder", "Folder", 160, "w"),
             ("path", "Full path", 420, "w"),
         ), first=("File", 380), selectmode="extended")
@@ -1028,31 +1093,34 @@ class App(tk.Tk):
 
     def build_cleaner_tab(self, parent):
         tab = ttk.Frame(parent)
-        top = ttk.Frame(tab)
-        top.pack(fill="x")
-        self.clean_scan_button = ttk.Button(top, text="Scan", style=theme.accent(), command=self.scan_cleaner)
-        self.clean_scan_button.pack(side="left")
-        self.clean_stop_button = ttk.Button(top, text="Stop", command=lambda: self.clean_cancel.set(), state="disabled")
-        self.clean_stop_button.pack(side="left", padx=6)
-        self.clean_summary = ttk.Label(top, text="Tick what to look for, then click Scan. Nothing is deleted until "
-                                       "you click Clean.")
-        self.clean_summary.pack(side="left", padx=10)
-        self.clean_progress = ttk.Progressbar(top, mode="indeterminate", length=theme.px(160))
+        self.clean_scan_button = ttk.Button(self.header_actions, text="Scan now", style=theme.accent(),
+                                            command=self.scan_cleaner)
+        self.clean_scan_button.pack(side="right")
+        self.clean_stop_button = ttk.Button(self.header_actions, text="Stop scan", command=lambda: self.clean_cancel.set(),
+                                            state="disabled")
+        self.clean_stop_button.pack(side="right", padx=6)
+        self.clean_stats = theme.stat_row(tab, [("Space to recover", ""), ("Items selected", ""),
+                                                ("Last scan", "")])
+        self.clean_stats[0].set("—", "", "Ticked items, after a scan")
+        self.clean_stats[2].set("Never", "", f"Only files older than {cleaner.MIN_AGE_HOURS} hours")
 
-        # Packed before the table so the table, not these buttons, shrinks in a small window.
-        bottom = ttk.Frame(tab)
-        bottom.pack(side="bottom", fill="x")
+        panel = theme.Panel(tab, "What to clean", "")
+        panel.pack(fill="both", expand=True)
+        panel.set_count(f"{len(cleaner.CATEGORIES)} items")
+        self.clean_summary = ttk.Label(panel.controls, style="Muted.TLabel",
+                                       text="Nothing is deleted until you click Clean.")
+        self.clean_summary.pack(side="left")
+        self.clean_progress = ttk.Progressbar(panel.controls, mode="indeterminate", length=theme.px(140))
+        bottom = panel.add_footer()
         self.clean_button = ttk.Button(bottom, text="Clean checked", style=theme.accent(),
                                        command=self.clean_checked, state="disabled")
         self.clean_button.pack(side="right")
         ttk.Label(bottom, text=f"Only files left untouched for {cleaner.MIN_AGE_HOURS} hours are included. "
                   "Everything cleaned is listed in History.", style="Muted.TLabel").pack(side="left")
 
-        table = ttk.Frame(tab)
-        table.pack(fill="both", expand=True, pady=8)
-        self.cleaner_tree = add_scrolled_tree(table, (
-            ("files", "Files", 70, "center"), ("size", "Size", 90, "center"), ("details", "Details", 520, "w"),
-        ), first=("What to clean", 230), selectmode="browse")
+        self.cleaner_tree = add_scrolled_tree(panel.body, (
+            ("files", "Files", 70, "w"), ("size", "Size", 90, "w"), ("details", "Details", 520, "w"),
+        ), first=("What to clean", 250), selectmode="browse")
         self.cleaner_tree.bind("<Button-1>", self.on_cleaner_click)
         self.cleaner_tree.bind("<space>", lambda _: self.toggle_cleaner(self.cleaner_tree.selection()))
         self.cleaner_tree.bind("<Double-1>", self.open_cleaner_folder)
@@ -1066,6 +1134,8 @@ class App(tk.Tk):
             # The row text is an interface label here, not a file name, so it is translated by hand.
             self.cleaner_tree.insert("", "end", iid=category.key, text=i18n.visual(i18n.tr(category.label)))
             self.paint_cleaner(category.key)
+        self.clean_stats[1].set(str(len(self.clean_checked_keys)), f"of {len(cleaner.CATEGORIES)}",
+                                "Your personal files are untouched")
         return tab
 
     def paint_cleaner(self, key):
@@ -1086,6 +1156,7 @@ class App(tk.Tk):
             self.clean_checked_keys ^= {key}
             self.paint_cleaner(key)
         self.update_config(cleaner={"categories": sorted(self.clean_checked_keys)})
+        self.clean_stats[1].set(str(len(self.clean_checked_keys)), f"of {len(cleaner.CATEGORIES)}")
         self.update_cleaner_summary()
 
     def open_cleaner_folder(self, event):
@@ -1101,6 +1172,8 @@ class App(tk.Tk):
             return
         chosen = self.chosen_cleaner_results()
         count, size = sum(len(f.files) for f in chosen), sum(f.size for f in chosen)
+        number, unit = format_size(size).split(" ")
+        self.clean_stats[0].set(number, unit)
         self.clean_summary.config(text=f"{count} file(s), {format_size(size)} can be cleaned." if count
                                   else "Nothing to clean in the ticked items.")
         self.clean_button.config(state="normal" if count else "disabled")
@@ -1169,6 +1242,7 @@ class App(tk.Tk):
                 self.clean_summary.config(text="Scan stopped.")
                 return
             self.clean_found = {found.category.key: found for found in state["found"]}
+            self.clean_stats[2].set(time.strftime("%H:%M"), "today")
             for key in self.clean_found:
                 self.paint_cleaner(key)
             self.update_cleaner_summary()
@@ -1228,10 +1302,10 @@ class App(tk.Tk):
 
     def build_booster_tab(self, parent):
         tab = ttk.Frame(parent)
-        self.boost_memory = ttk.Label(tab)
-        self.boost_memory.pack(anchor="w")
+        self.boost_stats = theme.stat_row(tab, [("Memory in use", ""), ("Startup apps", ""),
+                                                ("Power plan", "")])
         notebook = ttk.Notebook(tab)
-        notebook.pack(fill="both", expand=True, pady=(theme.px(8), 0))
+        notebook.pack(fill="both", expand=True)
 
         # Startup apps: fewer of them means a faster sign-in and less running in the background.
         startup = ttk.Frame(notebook, padding=theme.px(10))
@@ -1297,8 +1371,8 @@ class App(tk.Tk):
     def refresh_memory(self):
         total, available = booster.memory_status()
         used = total - available
-        self.boost_memory.config(text=f"Memory in use: {format_size(used)} of {format_size(total)} "
-                                 f"({used * 100 // max(total, 1)}%)")
+        number, unit = format_size(used).split(" ")
+        self.boost_stats[0].set(number, unit, f"{used * 100 // max(total, 1)}% of {format_size(total)} total")
 
     def refresh_startup(self):
         tree = self.startup_tree
@@ -1310,6 +1384,7 @@ class App(tk.Tk):
                               values=("On" if item.enabled else "Off", item.where, item.command))
             self.startup_rows[row] = item
         on = sum(item.enabled for item in items)
+        self.boost_stats[1].set(str(on), f"of {len(items)}", "Start with Windows")
         self.startup_summary.config(text=f"{on} of {len(items)} start with Windows. "
                                     "Turning one off keeps it installed.")
 
@@ -1370,6 +1445,7 @@ class App(tk.Tk):
                             value=plan.guid, variable=self.power_choice).pack(anchor="w", pady=2)
             if plan.active:
                 self.power_choice.set(plan.guid)
+                self.boost_stats[2].set(plan.name, "", "The plan Windows is using now")
 
     def apply_power_plan(self):
         plan = self.power_plans.get(self.power_choice.get())
@@ -1402,25 +1478,33 @@ class App(tk.Tk):
             self.build_vault_password(create=not vault.exists())
 
     def build_vault_password(self, create):
+        # A centred column: the lock mark, a heading, and the password form.
         box = ttk.Frame(self.vault_tab)
-        box.pack(anchor="w", pady=(theme.px(10), 0))
+        box.pack(pady=(theme.px(24), 0))
+        theme.label(box, "", theme.PRIMARY, background=theme.mix(theme.PRIMARY, theme.BACKGROUND, 0.10),
+                    font=(theme.FONT_ICONS, 26), padx=theme.px(22), pady=theme.px(20)).pack()
         if create:
-            intro = ("Keep private files here. Files you add are encrypted with your password and removed from where "
-                     "they were, so nobody can open them unless they know the password.")
+            heading, intro = "Create your Vault.", (
+                "Files you add are encrypted with your password and removed from where they were, "
+                "so nobody can open them unless they know the password.")
         else:
-            intro = "The vault is locked. Enter your password to see and open its files."
-        ttk.Label(box, text=intro, wraplength=theme.px(620), justify="left").grid(
-            row=0, column=0, columnspan=3, sticky="w", pady=(0, theme.px(14)))
+            heading, intro = "Your Vault is locked.", "Enter your password to see and open your private files."
+        ttk.Label(box, text=heading, style="Section.TLabel").pack(pady=(theme.px(16), theme.px(4)))
+        ttk.Label(box, text=intro, style="Muted.TLabel", wraplength=theme.px(440), justify="center").pack()
+        form = ttk.Frame(box)
+        form.pack(pady=(theme.px(18), 0))
         password, confirm = tk.StringVar(), tk.StringVar()
-        ttk.Label(box, text="Password").grid(row=1, column=0, sticky="w", padx=(0, 12))
-        first = ttk.Entry(box, textvariable=password, show="•", width=32)
-        first.grid(row=1, column=1, sticky="w")
+        ttk.Label(form, text="Password", style="Muted.TLabel").pack(anchor="w")
+        first = ttk.Entry(form, textvariable=password, show="•", width=40)
+        first.pack(fill="x", pady=(theme.px(4), theme.px(10)))
+        entries = [first]
         if create:
-            ttk.Label(box, text="Type it again").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=(8, 0))
-            second = ttk.Entry(box, textvariable=confirm, show="•", width=32)
-            second.grid(row=2, column=1, sticky="w", pady=(8, 0))
-        message = ttk.Label(box, foreground=theme.AMBER)
-        message.grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+            ttk.Label(form, text="Type it again", style="Muted.TLabel").pack(anchor="w")
+            second = ttk.Entry(form, textvariable=confirm, show="•", width=40)
+            second.pack(fill="x", pady=(theme.px(4), theme.px(10)))
+            entries.append(second)
+        message = ttk.Label(form, foreground=theme.AMBER)
+        message.pack(anchor="w")
 
         def submit(_=None):
             if create:
@@ -1445,21 +1529,20 @@ class App(tk.Tk):
             self.vault_touch()
             self.show_vault_screen()
 
-        button = ttk.Button(box, text="Create vault" if create else "Unlock", style=theme.accent(), command=submit)
-        button.grid(row=4, column=1, sticky="w", pady=(theme.px(12), 0))
-        for entry in box.winfo_children():
-            if isinstance(entry, ttk.Entry):
-                entry.bind("<Return>", submit)
+        ttk.Button(form, text="Create vault" if create else "Unlock", style=theme.accent(),
+                   command=submit).pack(fill="x", pady=(theme.px(8), 0))
+        for entry in entries:
+            entry.bind("<Return>", submit)
         if create:
             ttk.Label(box, text="Write the password down somewhere safe. If it is forgotten, the files in the vault "
-                      "can't be recovered by anyone.", style="Muted.TLabel", wraplength=theme.px(620),
-                      justify="left").grid(row=5, column=0, columnspan=3, sticky="w", pady=(theme.px(16), 0))
+                      "can't be recovered by anyone.", style="Small.TLabel", wraplength=theme.px(440),
+                      justify="center").pack(pady=(theme.px(16), 0))
         first.focus_set()
 
     def build_vault_unlocked(self):
         tab = self.vault_tab
         top = ttk.Frame(tab)
-        top.pack(fill="x")
+        top.pack(fill="x", pady=(0, theme.px(14)))
         self.vault_add_button = ttk.Button(top, text="Add files…", style=theme.accent(), command=self.vault_add)
         self.vault_add_button.pack(side="left")
         ttk.Button(top, text="Open", command=self.vault_open).pack(side="left", padx=(6, 0))
@@ -1468,24 +1551,22 @@ class App(tk.Tk):
         ttk.Button(top, text="Lock", command=self.lock_vault).pack(side="right")
         ttk.Button(top, text="Change password…", command=self.vault_change_password).pack(side="right", padx=6)
 
-        bottom = ttk.Frame(tab)
-        bottom.pack(side="bottom", fill="x")
+        panel = theme.Panel(tab, "Vault files", "")
+        panel.pack(fill="both", expand=True)
+        self.vault_panel = panel
+        self.vault_filter = tk.StringVar()
+        self.vault_filter.trace_add("write", lambda *_: self.refresh_vault())
+        search = ttk.Entry(panel.controls, textvariable=self.vault_filter, width=24)
+        search.pack(side="left")
+        add_placeholder(search, self.vault_filter, "Search files…")
+        bottom = panel.add_footer()
         self.vault_status = ttk.Label(bottom, style="Muted.TLabel")
         self.vault_status.pack(side="left")
         self.vault_progress = ttk.Progressbar(bottom, mode="determinate", length=theme.px(200))
 
-        search = ttk.Frame(tab)
-        search.pack(fill="x", pady=(theme.px(10), 0))
-        ttk.Label(search, text="Search").pack(side="left", padx=(0, 6))
-        self.vault_filter = tk.StringVar()
-        self.vault_filter.trace_add("write", lambda *_: self.refresh_vault())
-        ttk.Entry(search, textvariable=self.vault_filter, width=28).pack(side="left")
-
-        table = ttk.Frame(tab)
-        table.pack(fill="both", expand=True, pady=8)
-        self.vault_tree = add_scrolled_tree(table, (
-            ("size", "Size", 90, "e"), ("added", "Added", 140, "center"), ("folder", "Came from", 220, "w"),
-        ), first=("File", 360), selectmode="extended")
+        self.vault_tree = add_scrolled_tree(panel.body, (
+            ("size", "Size", 90, "w"), ("added", "Date added", 140, "w"), ("folder", "Source", 220, "w"),
+        ), first=("File name", 360), selectmode="extended")
         self.vault_tree.bind("<Double-1>", lambda _: self.vault_open())
         self.vault_tree.bind("<Return>", lambda _: self.vault_open())
         self.vault_tree.bind("<Delete>", lambda _: self.vault_delete())
@@ -1508,6 +1589,7 @@ class App(tk.Tk):
                                       Path(item.folder).name or item.folder))
             self.vault_rows[row] = item
         shown = f"Showing {len(self.vault_rows)} of " if search else ""
+        self.vault_panel.set_count(f"{len(items)} file(s)")
         self.vault_status.config(text=f"{shown}{len(items)} file(s), {format_size(sum(i.size for i in items))}. "
                                  f"Locks itself after {self.VAULT_IDLE_MINUTES} minutes without use.")
 
@@ -1683,31 +1765,32 @@ class App(tk.Tk):
 
     def build_history_tab(self, parent):
         tab = ttk.Frame(parent)
-        top = ttk.Frame(tab)
-        top.pack(fill="x")
-        ttk.Button(top, text="Refresh", command=self.refresh_history).pack(side="left")
-        ttk.Label(top, text="Search").pack(side="left", padx=(12, 4))
+        ttk.Button(self.header_actions, text="Undo selected", style=theme.accent(),
+                   command=self.undo_selected).pack(side="right")
+        self.history_stats = theme.stat_row(tab, [("Changes logged", ""), ("Undo available", ""),
+                                                  ("Last activity", "")])
+        panel = theme.Panel(tab, "Recent activity", "")
+        panel.pack(fill="both", expand=True)
         self.history_filter = tk.StringVar()
         self.history_filter.trace_add("write", lambda *_: self.show_history_page(0))
         self.history_page = 0  # zero-based
         self.history_page_size = tk.StringVar(value="100")
-        ttk.Entry(top, textvariable=self.history_filter, width=28).pack(side="left")
-        self.history_summary = ttk.Label(top)
-        self.history_summary.pack(side="left", padx=10)
-
-        table = ttk.Frame(tab)
-        table.pack(fill="both", expand=True, pady=8)
-        self.history_tree = add_scrolled_tree(table, (
+        search = ttk.Entry(panel.controls, textvariable=self.history_filter, width=24)
+        search.pack(side="left")
+        add_placeholder(search, self.history_filter, "Search history…")
+        ttk.Button(panel.controls, text="Refresh", command=self.refresh_history).pack(side="left", padx=(6, 0))
+        self.history_summary = ttk.Label(panel.title, style="Muted.TLabel")
+        self.history_summary.pack(side="left", padx=(theme.px(12), 0))
+        bottom = panel.add_footer()
+        self.history_tree = add_scrolled_tree(panel.body, (
             ("time", "When", 170, "w"), ("origin", "From", 170, "w"),
             ("destination", "To", 190, "w"), ("status", "Status", 90, "w"),
         ), first=("File", 320), selectmode="extended")
-        self.history_tree.tag_configure("inactive", foreground="gray")
+        self.history_tree.tag_configure("inactive", foreground=theme.MUTED)
         self.history_rows = {}  # row id -> (run time, index in run, move)
         self.history_tree.bind("<Control-a>", lambda _: self.history_tree.selection_set(self.history_tree.get_children()))
         attach_file_menu(self.history_tree, lambda row: core.current_path(self.history_rows[row][2]), self.refresh_preview)
 
-        bottom = ttk.Frame(tab)
-        bottom.pack(fill="x")
         # Pages keep the list fast and readable once the log holds thousands of rows.
         ttk.Label(bottom, text="Rows per page").pack(side="left")
         size = ttk.Combobox(bottom, textvariable=self.history_page_size, values=("50", "100", "250", "500"),
@@ -1720,9 +1803,9 @@ class App(tk.Tk):
         self.history_page_label.pack(side="left", padx=6)
         self.history_next = ttk.Button(bottom, text="Next ›", command=lambda: self.show_history_page(self.history_page + 1))
         self.history_next.pack(side="left")
-        ttk.Button(bottom, text="Undo selected", command=self.undo_selected).pack(side="right")
         ttk.Label(tab, text="Select rows with Ctrl or Shift (Ctrl+A for the whole page). Undo puts moved files back "
-                  "and brings deleted files out of the Recycle Bin.", foreground="gray").pack(anchor="w", pady=(6, 0))
+                  "and brings deleted files out of the Recycle Bin.", style="Small.TLabel").pack(
+            side="bottom", pady=(theme.px(10), 0), before=panel)
         return tab
 
     def show_history_page(self, page):
@@ -1766,7 +1849,12 @@ class App(tk.Tk):
         self.history_previous.config(state="normal" if self.history_page > 0 else "disabled")
         self.history_next.config(state="normal" if self.history_page < pages - 1 else "disabled")
         found = f"{len(matches)} match(es) in " if search else ""
-        self.history_summary.config(text=f"{found}{total} change(s) logged, {undoable} can be undone")
+        self.history_summary.config(text=f"{len(matches)} match(es)" if search else "")
+        self.history_stats[0].set(str(total), "", "Every action leaves a trace")
+        self.history_stats[1].set(str(undoable), "", "Restore files to where they were")
+        latest = max((match[0] for match in matches), default=None)
+        self.history_stats[2].set(latest[11:16] if latest else "None", latest[:10] if latest else "",
+                                  "Most recent change")
 
     def undo_selected(self):
         chosen = [self.history_rows[row] for row in self.history_tree.selection()]
@@ -1821,7 +1909,7 @@ class App(tk.Tk):
             frame = ttk.Frame(tab)
             frame.grid(row=number, column=1, columnspan=2, sticky="ew", padx=6, pady=(8, 0))
             widget_builder(frame).pack(side="left")
-            ttk.Label(frame, text=hint, foreground="gray").pack(side="left", padx=8)
+            ttk.Label(frame, text=hint, style="Muted.TLabel").pack(side="left", padx=8)
 
         row(1, "Move files older than (days)",
             lambda f: ttk.Spinbox(f, from_=0, to=3650, textvariable=self.age_var, width=8),
@@ -1837,11 +1925,13 @@ class App(tk.Tk):
         row(5, "Never move (names or patterns)",
             lambda f: ttk.Entry(f, textvariable=self.ignore_var, width=58), "e.g. *.torrent, taxes*")
 
-        ttk.Label(tab, text="Categories").grid(row=6, column=0, sticky="w", pady=(12, 2))
-        table = ttk.Frame(tab)
+        ttk.Label(tab, text="Destination folders", style="Section.TLabel").grid(
+            row=6, column=0, sticky="w", pady=(theme.px(18), theme.px(8)))
+        table = theme.Panel(tab)
+        table.toolbar.pack_forget()
         table.grid(row=7, column=0, columnspan=3, sticky="nsew")
         tab.rowconfigure(7, weight=1)
-        self.categories = add_scrolled_tree(table, (
+        self.categories = add_scrolled_tree(table.body, (
             ("extensions", "Extensions", 430, "w"), ("age", "Move after", 110, "w"),
             ("recycle", "Clean up after", 130, "w"),
         ), first=("Destination folder", 220), height=4)
@@ -1855,7 +1945,8 @@ class App(tk.Tk):
         ttk.Button(buttons, text="Add…", command=self.add_category).pack(side="left")
         ttk.Button(buttons, text="Edit…", command=self.edit_category).pack(side="left", padx=6)
         ttk.Button(buttons, text="Remove", command=self.remove_category).pack(side="left")
-        ttk.Button(buttons, text="Save settings", style=theme.accent(), command=self.save_settings).pack(side="right")
+        ttk.Button(self.header_actions, text="Save settings", style=theme.accent(),
+                   command=self.save_settings).pack(side="right")
         self.language_var = tk.StringVar(value=LANGUAGES.get(config["language"], LANGUAGES[""]))
         ttk.Combobox(buttons, textvariable=self.language_var, values=list(LANGUAGES.values()),
                      state="readonly", width=11).pack(side="right", padx=(6, 14))
@@ -1945,10 +2036,12 @@ class App(tk.Tk):
     # --- Background control ---
 
     def build_status_bar(self, parent):
-        bar = ttk.Frame(parent, padding=(theme.px(22), theme.px(12)))
+        bar = ttk.Frame(parent, padding=(theme.px(30), theme.px(12)))
         bar.pack(side="bottom", fill="x")
-        self.status_dot = ttk.Label(bar, text="●", font=("Segoe UI", 13))
-        self.status_dot.pack(side="left", padx=(0, 6))
+        tk.Frame(parent, background=theme.BORDER, height=1).pack(side="bottom", fill="x")
+        self.status_dot = theme.label(bar, "", theme.MUTED, background=theme.SECONDARY,
+                                      font=(theme.FONT_ICONS, 12), width=3, height=1, pady=theme.px(4))
+        self.status_dot.pack(side="left", padx=(0, theme.px(12)))
         # The buttons are packed before the label so a narrow window cuts the text, not the buttons.
         self.background_button = ttk.Button(bar, command=self.toggle_background)
         self.background_button.pack(side="right")
@@ -1973,7 +2066,10 @@ class App(tk.Tk):
         else:
             text = "Automatic sorting is OFF: nothing moves until you click Move"
         self.background_label.config(text=text)
-        self.status_dot.config(foreground=theme.AMBER if running and paused else theme.GREEN if running else theme.GRAY)
+        color = theme.AMBER if running and paused else theme.GREEN if running else theme.GRAY
+        self.status_dot.config(foreground=color)
+        self.top_bar.set_status("Automatic sorting paused" if running and paused else
+                                "Automatic sorting on" if running else "Automatic sorting off", color)
         self.background_button.config(text="Turn off automatic sorting" if running else "Turn on automatic sorting")
         self.pause_button.config(text="Resume" if paused else "Pause for today", state="normal" if running else "disabled")
         if repeat:
@@ -2022,22 +2118,25 @@ class ReportWindow(tk.Tk):
         core.REPORT_PID_FILE.write_text(str(os.getpid()))
         self.protocol("WM_DELETE_WINDOW", self.close)
 
-        self.heading = ttk.Label(self, padding=(10, 14, 10, 4), style="Title.TLabel")
+        page = ttk.Frame(self, padding=(theme.px(24), theme.px(20)))
+        page.pack(fill="both", expand=True)
+        ttk.Label(page, text=theme.EYEBROW, style="Eyebrow.TLabel").pack(anchor="w", pady=(0, theme.px(4)))
+        self.heading = ttk.Label(page, style="Title.TLabel")
         self.heading.pack(anchor="w")
-        ttk.Label(self, padding=(10, 0), text="Approve to keep them where they are now, or Undo to put them all back. "
-                  "Right-click a file for more.").pack(anchor="w")
-        table = ttk.Frame(self, padding=10)
-        table.pack(fill="both", expand=True)
-        self.tree = add_scrolled_tree(table, (
-            ("destination", "Moved to", 300, "w"), ("time", "When", 170, "w")), first=("File", 360))
-        self.paths = {}  # row id -> where the file is now
-        attach_file_menu(self.tree, self.paths.get, self.refresh)
-
-        buttons = ttk.Frame(self, padding=(10, 0, 10, 10))
-        buttons.pack(fill="x")
+        ttk.Label(page, style="Muted.TLabel", text="Approve to keep them where they are now, or Undo to put them all "
+                  "back. Right-click a file for more.").pack(anchor="w", pady=(theme.px(4), theme.px(16)))
+        # Buttons are packed before the list, so a small window shrinks the list, not them.
+        buttons = ttk.Frame(page)
+        buttons.pack(side="bottom", fill="x", pady=(theme.px(12), 0))
         ttk.Button(buttons, text="Approve", style=theme.accent(), command=self.approve).pack(side="right")
         self.undo_button = ttk.Button(buttons, text="Undo all", command=self.undo)
         self.undo_button.pack(side="right", padx=6)
+        panel = theme.Panel(page, "Moved files", "")
+        panel.pack(fill="both", expand=True)
+        self.tree = add_scrolled_tree(panel.body, (
+            ("destination", "Moved to", 300, "w"), ("time", "When", 170, "w")), first=("File", 360))
+        self.paths = {}  # row id -> where the file is now
+        attach_file_menu(self.tree, self.paths.get, self.refresh)
 
         self.pending = []
         self.refresh(repeat=True)
