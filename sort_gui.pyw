@@ -41,6 +41,42 @@ def report_result(parent, message, errors):
         messagebox.showinfo("Done", message, parent=parent)
 
 
+def ask_delete_how(parent, message):
+    """Ask whether to recycle or delete for good. Returns "recycle", "permanent" or None."""
+    dialog = tk.Toplevel(parent)
+    dialog.title("Delete")
+    dialog.transient(parent)
+    dialog.resizable(False, False)
+    dialog.configure(background=theme.BACKGROUND)
+    theme.dark_titlebar(dialog)
+    answer = []
+    frame = ttk.Frame(dialog, padding=theme.px(18))
+    frame.pack(fill="both", expand=True)
+    ttk.Label(frame, text=message, justify="left", wraplength=theme.px(460)).pack(anchor="w")
+    ttk.Label(frame, text="Files sent to the Recycle Bin can be brought back from History.",
+              style="Muted.TLabel").pack(anchor="w", pady=(theme.px(10), 0))
+    buttons = ttk.Frame(frame)
+    buttons.pack(fill="x", pady=(theme.px(16), 0))
+
+    def choose(value):
+        answer.append(value)
+        dialog.destroy()
+
+    ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="right")
+    ttk.Button(buttons, text="Delete for good", command=lambda: choose("permanent")).pack(side="right", padx=6)
+    recycle = ttk.Button(buttons, text="Move to Recycle Bin", style=theme.accent(), command=lambda: choose("recycle"))
+    recycle.pack(side="right")
+    dialog.bind("<Escape>", lambda _: dialog.destroy())
+    dialog.bind("<Return>", lambda _: choose("recycle"))
+    dialog.update_idletasks()
+    dialog.geometry(f"+{parent.winfo_rootx() + (parent.winfo_width() - dialog.winfo_width()) // 2}"
+                    f"+{parent.winfo_rooty() + (parent.winfo_height() - dialog.winfo_height()) // 3}")
+    recycle.focus_set()
+    dialog.grab_set()
+    parent.wait_window(dialog)
+    return answer[0] if answer else None
+
+
 def attach_file_menu(tree, path_for_row, on_change, extra=()):
     """Give a file list a right-click menu: show in Explorer, open, delete.
 
@@ -199,6 +235,12 @@ class App(tk.Tk):
         theme.apply(self)
         theme.set_size(self, 1200, 760, 980, 640)
         self.config_data = core.load_config()
+        if self.config_data["window_geometry"]:
+            try:
+                self.geometry(self.config_data["window_geometry"])
+            except tk.TclError:
+                pass
+        self.protocol("WM_DELETE_WINDOW", self.close)
         self.moves = {}  # preview row id -> planned move
         for category in self.config_data["categories"]:
             theme.tile(group=Path(category["folder"]).name)  # fixes each folder's tile colour, in settings order
@@ -229,6 +271,11 @@ class App(tk.Tk):
         self.refresh_preview()
         self.refresh_background_status(repeat=True)
         self.show_page("preview")
+
+    def close(self):
+        self.save_duplicates_settings()
+        self.update_config(window_geometry=self.geometry())
+        self.destroy()
 
     def show_page(self, key):
         self.page_frames[key].tkraise()
@@ -397,6 +444,7 @@ class App(tk.Tk):
         self.dup_source = tk.StringVar(value=settings["source"])
         self.dup_folder = tk.StringVar(value=settings["folder"])
         self.dup_recursive = tk.BooleanVar(value=settings["recursive"])
+        self.dup_check_folder = tk.StringVar(value=settings["check_folder"])
         self.dup_check_subfolders = tk.BooleanVar(value=settings["check_subfolders"])
         ttk.Label(options, text="Look in").grid(row=0, column=0, sticky="w", padx=(0, 12))
         ttk.Radiobutton(options, text="The sorted folders", value="sorted", variable=self.dup_source).grid(
@@ -432,11 +480,24 @@ class App(tk.Tk):
         ttk.Button(filters, text="Apply", command=self.apply_duplicates_filter).pack(side="left")
         ttk.Button(filters, text="Clear", command=self.clear_duplicates_filter).pack(side="left", padx=6)
 
+        ttk.Label(options, text="Check in").grid(row=4, column=0, sticky="w", padx=(0, 12), pady=(8, 0))
+        check_row = ttk.Frame(options)
+        check_row.grid(row=4, column=1, columnspan=3, sticky="ew", pady=(8, 0))
+        ttk.Button(check_row, text="Check copies in this folder", command=self.check_duplicates_in_folder).pack(
+            side="left")
+        ttk.Entry(check_row, textvariable=self.dup_check_folder).pack(side="left", fill="x", expand=True, padx=6)
+        ttk.Button(check_row, text="Browse…", command=self.browse_check_folder).pack(side="left")
+        ttk.Button(check_row, text="Use scan folder",
+                   command=lambda: self.dup_check_folder.set(self.dup_folder.get())).pack(side="left", padx=6)
+        ttk.Checkbutton(check_row, text="Include subfolders", variable=self.dup_check_subfolders,
+                        style=theme.switch()).pack(side="left")
+
         table = ttk.Frame(tab)
         table.pack(fill="both", expand=True, pady=8)
         self.duplicates_tree = add_scrolled_tree(table, (
-            ("size", "Size", 100, "center"), ("modified", "Modified", 150, "center"), ("folder", "Folder", 380, "w"),
-        ), first=("File", 420), selectmode="extended")
+            ("size", "Size", 90, "center"), ("modified", "Modified", 140, "center"), ("folder", "Folder", 260, "w"),
+            ("path", "Full path", 420, "w"),
+        ), first=("File", 380), selectmode="extended")
         self.duplicates_tree.tag_configure("group", foreground=theme.MUTED)
         self.duplicates_tree.bind("<Button-1>", self.on_duplicates_click)
         self.duplicates_tree.bind("<space>", lambda _: self.toggle_duplicates(self.duplicates_tree.selection()))
@@ -448,6 +509,11 @@ class App(tk.Tk):
         self.dup_checked = set()  # core.norm(path) of every checked file
         self.dup_thread = None
         self.dup_cancel = threading.Event()
+        self.dup_save_job = None
+        for variable in (self.dup_source, self.dup_folder, self.dup_recursive, self.dup_extension, self.dup_name,
+                         self.dup_min_mb, self.dup_check_folder, self.dup_check_subfolders):
+            variable.trace_add("write", lambda *_: self.save_duplicates_settings_soon())
+        self.dup_mode.bind("<<ComboboxSelected>>", lambda _: self.save_duplicates_settings_soon())
 
         bottom = ttk.Frame(tab)
         bottom.pack(fill="x")
@@ -468,15 +534,13 @@ class App(tk.Tk):
                 ("The smallest in each group", lambda: self.check_duplicates_by(
                     lambda files: [e for e in files if e.size == min(f.size for f in files)])),
                 ("Extra copies in the same folder (keep 1 per folder)", self.check_same_folder_duplicates),
-                ("Every copy inside a folder…", self.check_duplicates_in_folder),
+                ('Every copy inside the "Check in" folder', self.check_duplicates_in_folder),
                 (None, None),
                 ("Highlighted rows", lambda: self.set_duplicates_checked(self.duplicates_tree.selection(), True))):
             if label:
                 menu.add_command(label=label, command=command)
             else:
                 menu.add_separator()
-        menu.add_checkbutton(label="   …including its subfolders", variable=self.dup_check_subfolders,
-                             command=self.save_duplicates_settings)
         check.pack(side="left")
         self.delete_duplicates_button = ttk.Button(
             bottom, text="Delete checked", command=self.delete_checked_duplicates, state="disabled")
@@ -495,15 +559,31 @@ class App(tk.Tk):
             self.dup_folder.set(str(Path(folder)))
             self.dup_source.set("folder")
 
+    def browse_check_folder(self):
+        folder = filedialog.askdirectory(title="Folder whose copies to check",
+                                         initialdir=self.dup_check_folder.get() or self.dup_folder.get() or None)
+        if folder:
+            self.dup_check_folder.set(str(Path(folder)))
+
     def duplicates_mode(self):
         return next(key for key, label in duplicates.MODES.items() if label == self.dup_mode.get())
 
+    def save_duplicates_settings_soon(self):
+        """Save shortly after the last change, not on every key press."""
+        if self.dup_save_job:
+            self.after_cancel(self.dup_save_job)
+        self.dup_save_job = self.after(800, self.save_duplicates_settings)
+
     def save_duplicates_settings(self):
+        if self.dup_save_job:
+            self.after_cancel(self.dup_save_job)
+            self.dup_save_job = None
         self.update_config(duplicates={
             "source": self.dup_source.get(), "folder": self.dup_folder.get().strip().strip('"'),
             "recursive": self.dup_recursive.get(), "mode": self.duplicates_mode(),
             "extension": self.dup_extension.get().strip(), "name": self.dup_name.get().strip(),
-            "min_mb": self.dup_min_mb.get().strip(), "check_subfolders": self.dup_check_subfolders.get()})
+            "min_mb": self.dup_min_mb.get().strip(), "check_folder": self.dup_check_folder.get().strip().strip('"'),
+            "check_subfolders": self.dup_check_subfolders.get()})
 
     def scan_duplicates(self):
         if self.dup_thread and self.dup_thread.is_alive():
@@ -606,12 +686,12 @@ class App(tk.Tk):
             self.dup_shown.append(shown)
             same_size = len({e.size for e in files}) == 1
             parent = tree.insert("", "end", open=True, tags=("group",), text=f"Group {group.number}:  {len(files)} files",
-                                 values=(format_size(files[0].size) if same_size else "", "", ""))
+                                 values=(format_size(files[0].size) if same_size else "", "", "", ""))
             self.dup_group_rows[parent] = shown
             for entry in files:
                 row = tree.insert(parent, "end", values=(
                     format_size(entry.size), time.strftime("%Y-%m-%d %H:%M", time.localtime(entry.modified)),
-                    entry.path.parent))
+                    entry.path.parent, entry.path))
                 self.dup_rows[row] = entry
                 self.paint_duplicate(row)
         self.update_duplicates_summary()
@@ -698,9 +778,12 @@ class App(tk.Tk):
         self.check_duplicates_by(pick)
 
     def check_duplicates_in_folder(self):
-        folder = filedialog.askdirectory(title="Check every listed copy inside this folder",
-                                         initialdir=self.dup_folder.get() or None)
+        folder = (self.dup_check_folder.get() or self.dup_folder.get()).strip().strip('"')
         if not folder:
+            messagebox.showinfo("Duplicates", 'Enter a folder in "Check in", or click Use scan folder.', parent=self)
+            return
+        if not Path(folder).is_dir():
+            messagebox.showwarning("Duplicates", f"Not a folder:\n{folder}", parent=self)
             return
         target, subfolders = core.norm(Path(folder)), self.dup_check_subfolders.get()
 
@@ -735,22 +818,15 @@ class App(tk.Tk):
         menu.add_separator()
         menu.add_command(label="Remove from this list (keeps the file)",
                          command=lambda: self.forget_duplicates({core.norm(e.path) for e in entries}))
-        menu.add_command(label="Delete (to Recycle Bin)", command=lambda: self.delete_duplicate_entries(entries))
+        menu.add_command(label="Delete…", command=lambda: self.delete_duplicate_entries(entries))
         menu.tk_popup(event.x_root, event.y_root)
 
     def show_duplicate(self, path):
-        if path.exists():
-            subprocess.Popen(f'explorer /select,"{path}"')
-        else:
-            messagebox.showinfo("File", "This file is not there any more.", parent=self)
+        if error := duplicates.reveal(path):
+            messagebox.showwarning("File", error, parent=self)
 
     def open_duplicates(self, entries):
-        errors = []
-        for entry in entries:
-            try:
-                os.startfile(entry.path)
-            except OSError as error:
-                errors.append(f"{entry.name}: {error}")
+        errors = [error for entry in entries if (error := duplicates.open_file(entry.path))]
         if errors:
             messagebox.showwarning("Open", "Could not open:\n" + "\n".join(errors[:8]), parent=self)
 
@@ -776,14 +852,20 @@ class App(tk.Tk):
         listing = "\n".join(e.name for e in entries[:12]) + (f"\n… and {len(entries) - 12} more" if len(entries) > 12 else "")
         warning = (f"\n\nWARNING: in {emptied} group(s) every copy is selected, so no copy of those files "
                    "will be left." if emptied else "")
-        if not messagebox.askyesno(
-                "Delete", f"Send {len(entries)} file(s) ({format_size(sum(e.size for e in entries))}) "
-                f"to the Recycle Bin?\n\n{listing}{warning}", icon="warning" if emptied else "question", parent=self):
+        how = ask_delete_how(self, f"Delete {len(entries)} file(s) ({format_size(sum(e.size for e in entries))})?"
+                             f"\n\n{listing}{warning}")
+        if how is None:
             return
-        count, errors = core.delete_files([e.path for e in entries])
+        permanent = how == "permanent"
+        if permanent and not messagebox.askyesno(
+                "Delete for good", f"The {len(entries)} file(s) will be gone for good: they won't go to the "
+                "Recycle Bin and History can't bring them back.\n\nDelete them?", icon="warning", parent=self):
+            return
+        count, errors = core.delete_files([e.path for e in entries], permanent=permanent)
         self.forget_duplicates({core.norm(e.path) for e in entries if not e.path.exists()})
         self.refresh_preview()
-        report_result(self, f"Deleted {count} file(s). You can bring them back from History.", errors)
+        report_result(self, f"Deleted {count} file(s) for good." if permanent else
+                      f"Sent {count} file(s) to the Recycle Bin. You can bring them back from History.", errors)
 
     # --- History tab ---
 
@@ -830,6 +912,8 @@ class App(tk.Tk):
                 status = "Moved" if core.is_active(move) else move[2].capitalize()
                 if not core.is_active(move) and move[2] == "deleted":
                     destination = "Recycle Bin"
+                elif not core.is_active(move) and move[2] == "erased":
+                    destination = "Deleted for good"
                 else:
                     destination = Path(move[1]).parent if move[1] else source.parent
                 values = (run["time"], source.parent, destination, status)

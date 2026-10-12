@@ -8,6 +8,9 @@ touches the window, so a scan can run on a background thread.
 import hashlib
 import os
 import re
+import shutil
+import subprocess
+import sys
 import threading
 import unicodedata
 from collections import defaultdict
@@ -194,3 +197,50 @@ def find(files: list[Entry], mode: str, cancel: threading.Event, progress=lambda
     else:
         groups.sort(key=lambda g: (-len(g), norm_text(g[0].name)))
     return [Group(number, files) for number, files in enumerate(groups, 1)]
+
+
+def reveal(path: Path) -> str | None:
+    """Show a file selected in the system file manager. None = done, else what went wrong."""
+    if not path.is_file():
+        return f"This file is not there any more:\n{path}"
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(f'explorer /select,"{path}"')
+        elif sys.platform == "darwin":
+            subprocess.run(["open", "-R", str(path)], check=False)
+        else:
+            # The freedesktop call selects the file in most Linux file managers.
+            if shutil.which("dbus-send") and subprocess.run(
+                    ["dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.FileManager1",
+                     "/org/freedesktop/FileManager1", "org.freedesktop.FileManager1.ShowItems",
+                     f"array:string:{path.resolve().as_uri()}", "string:"],
+                    capture_output=True, timeout=10).returncode == 0:
+                return None
+            for manager in ("nautilus", "nemo", "dolphin"):
+                if shutil.which(manager):
+                    subprocess.Popen([manager, "--select", str(path)])
+                    return None
+            if not shutil.which("xdg-open"):
+                return "No file manager was found (install xdg-utils)."
+            subprocess.Popen(["xdg-open", str(path.parent)])  # last resort: just its folder
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return str(error)
+    return None
+
+
+def open_file(path: Path) -> str | None:
+    """Open a file with its default program. None = done, else what went wrong."""
+    if not path.is_file():
+        return f"This file is not there any more:\n{path}"
+    try:
+        if sys.platform == "win32":
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+        elif shutil.which("xdg-open"):
+            subprocess.Popen(["xdg-open", str(path)])
+        else:
+            return "xdg-open was not found (install xdg-utils)."
+    except OSError as error:
+        return str(error)
+    return None

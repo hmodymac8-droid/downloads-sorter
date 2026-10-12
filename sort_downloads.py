@@ -47,8 +47,10 @@ DEFAULT_CONFIG = {
     "paused_until": "",  # "YYYY-MM-DD HH:MM"; automatic runs wait until then
     "after_run": "window",  # "window" = report window, "notify" = tray notification only
     # The Duplicates page. "source": "sorted" = the sorted folders, "folder" = the one below.
+    # "check_folder": the folder "Check copies in folder" looks at; "" = the folder above.
     "duplicates": {"source": "sorted", "folder": "", "recursive": True, "mode": "content",
-                   "extension": "", "name": "", "min_mb": "", "check_subfolders": True},
+                   "extension": "", "name": "", "min_mb": "", "check_folder": "", "check_subfolders": True},
+    "window_geometry": "",  # the main window's last size and position
 }
 # Partial downloads, shortcuts and system files that must never be moved.
 SKIP_EXTENSIONS = {".crdownload", ".part", ".partial", ".download", ".opdownload", ".tmp", ".lnk", ".url"}
@@ -216,6 +218,7 @@ def move_files(moves: list[dict], review: bool = False) -> tuple[int, list[str]]
 #   "undone"   - moved back to source
 #   "deleted"  - the file (at destination, or at source if destination is "")
 #                was sent to the Recycle Bin
+#   "erased"   - the same, but deleted for good (only on request), so no undo
 #   "restored" - a deleted file that was never moved was brought back to source
 # Nothing is ever removed from the log.
 
@@ -250,7 +253,7 @@ def current_path(move: list) -> Path | None:
     """Where the move's file is now, or None if it is in the Recycle Bin."""
     if is_active(move):
         return Path(move[1])
-    return None if move[2] == "deleted" else Path(move[0])
+    return None if move[2] in ("deleted", "erased") else Path(move[0])
 
 
 def last_active_run() -> dict | None:
@@ -385,23 +388,28 @@ def restore_from_recycle_bin(original: Path) -> None:
     record.unlink(missing_ok=True)
 
 
-def delete_files(paths: list[Path]) -> tuple[int, list[str]]:
-    """Recycle files and log each one so it can be brought back from History."""
+def delete_files(paths: list[Path], permanent: bool = False) -> tuple[int, list[str]]:
+    """Recycle files and log each one so it can be brought back from History.
+
+    permanent=True deletes them for good instead; they are still logged, but
+    nothing can bring them back.
+    """
     history = load_history()
     active = {norm(move[1]): move for run in history for move in run["moves"] if is_active(move)}
     unlogged, errors, count = [], [], 0
     for path in paths:
         try:
-            recycle(path)
+            path.unlink() if permanent else recycle(path)
         except OSError as error:
             errors.append(f"{path.name}: {error}")
             continue
         count += 1
-        log.info("Deleted (Recycle Bin) %s", path)
+        status = "erased" if permanent else "deleted"
+        log.info("Deleted (%s) %s", "permanently" if permanent else "Recycle Bin", path)
         if norm(path) in active:
-            active[norm(path)].append("deleted")
+            active[norm(path)].append(status)
         else:
-            unlogged.append([str(path), "", "deleted"])
+            unlogged.append([str(path), "", status])
     if unlogged:
         history.append({"time": time.strftime(TIME_FORMAT), "moves": unlogged, "review": False})
     save_history(history)
