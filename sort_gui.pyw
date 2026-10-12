@@ -1051,7 +1051,7 @@ class App(tk.Tk):
         table = ttk.Frame(tab)
         table.pack(fill="both", expand=True, pady=8)
         self.cleaner_tree = add_scrolled_tree(table, (
-            ("files", "Files", 70, "center"), ("size", "Size", 90, "center"), ("about", "About", 520, "w"),
+            ("files", "Files", 70, "center"), ("size", "Size", 90, "center"), ("details", "Details", 520, "w"),
         ), first=("What to clean", 230), selectmode="browse")
         self.cleaner_tree.bind("<Button-1>", self.on_cleaner_click)
         self.cleaner_tree.bind("<space>", lambda _: self.toggle_cleaner(self.cleaner_tree.selection()))
@@ -1063,7 +1063,8 @@ class App(tk.Tk):
         self.clean_thread = None
         self.clean_cancel = threading.Event()
         for category in cleaner.CATEGORIES:
-            self.cleaner_tree.insert("", "end", iid=category.key, text=category.label)
+            # The row text is an interface label here, not a file name, so it is translated by hand.
+            self.cleaner_tree.insert("", "end", iid=category.key, text=i18n.visual(i18n.tr(category.label)))
             self.paint_cleaner(category.key)
         return tab
 
@@ -1209,14 +1210,16 @@ class App(tk.Tk):
                 self.paint_cleaner(found.category.key)
             self.update_cleaner_summary()
             self.refresh_preview()
-            where = "deleted for good" if how == "permanent" else "sent to the Recycle Bin"
-            message = f"Cleaned {count} file(s), {format_size(sum(sizes[p] for p in gone))} {where}. " \
-                      "They are listed in History."
+            # Built from whole sentences so each can be translated.
+            freed = format_size(sum(sizes[p] for p in gone))
+            message = i18n.tr(f"Cleaned {count} file(s), {freed} deleted for good. They are listed in History."
+                              if how == "permanent" else
+                              f"Cleaned {count} file(s), {freed} sent to the Recycle Bin. They are listed in History.")
             if state["cancel"].is_set():
-                message += " Stopped before the end."
+                message += " " + i18n.tr("Stopped before the end.")
             if errors:
-                message += f"\n\n{len(errors)} file(s) were skipped because a program is using them " \
-                           "or they need administrator rights."
+                message += "\n\n" + i18n.tr(f"{len(errors)} file(s) were skipped because a program is using them "
+                                            "or they need administrator rights.")
             messagebox.showinfo("Cleaner", message, parent=self)
 
         self.run_cleaner_job(work, finish, {"status": "Cleaning…"})
@@ -1232,7 +1235,7 @@ class App(tk.Tk):
 
         # Startup apps: fewer of them means a faster sign-in and less running in the background.
         startup = ttk.Frame(notebook, padding=theme.px(10))
-        notebook.add(startup, text="Startup apps")
+        notebook.add(startup, text=i18n.visual(i18n.tr("Startup apps")))  # tab labels are not hooked
         bar = ttk.Frame(startup)
         bar.pack(side="bottom", fill="x")
         ttk.Button(bar, text="Refresh", command=self.refresh_startup).pack(side="left")
@@ -1252,7 +1255,7 @@ class App(tk.Tk):
 
         # Programs: the biggest memory users, which can be ended to free memory.
         programs = ttk.Frame(notebook, padding=theme.px(10))
-        notebook.add(programs, text="Running programs")
+        notebook.add(programs, text=i18n.visual(i18n.tr("Running programs")))
         bar = ttk.Frame(programs)
         bar.pack(side="bottom", fill="x")
         ttk.Button(bar, text="Refresh", command=self.refresh_programs).pack(side="left")
@@ -1269,7 +1272,7 @@ class App(tk.Tk):
 
         # Power plan.
         power = ttk.Frame(notebook, padding=theme.px(14))
-        notebook.add(power, text="Power plan")
+        notebook.add(power, text=i18n.visual(i18n.tr("Power plan")))
         ttk.Label(power, text="High performance keeps the processor at full speed: faster, but it uses more "
                   "power. Balanced saves power while the PC is idle.", wraplength=theme.px(640),
                   justify="left").pack(anchor="w")
