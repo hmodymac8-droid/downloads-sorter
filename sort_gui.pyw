@@ -250,6 +250,11 @@ class App(tk.Tk):
         ttk.Button(top, text="Refresh", command=self.refresh_preview).pack(side="left")
         self.summary = ttk.Label(top)
         self.summary.pack(side="left", padx=10)
+        # Off: only files old enough to move. On: every file that has a destination,
+        # so the user can pick new ones to sort by hand.
+        self.show_all = tk.BooleanVar(value=False)
+        ttk.Checkbutton(top, text="Show all files (ignore age)", variable=self.show_all,
+                        style=theme.switch(), command=self.refresh_preview).pack(side="right")
 
         table = ttk.Frame(tab)
         table.pack(fill="both", expand=True, pady=8)
@@ -268,13 +273,14 @@ class App(tk.Tk):
         ttk.Button(bottom, text="Undo last move", command=self.undo).pack(side="left", padx=6)
         self.move_button = ttk.Button(bottom, text="Move files", style=theme.accent(), command=self.move)
         self.move_button.pack(side="right")
-        ttk.Button(bottom, text="Sort ALL files now (ignore age)", command=self.sort_all_now).pack(side="right", padx=6)
+        ttk.Button(bottom, text="Move selected", command=self.move_selected).pack(side="right", padx=(6, 6))
+        ttk.Button(bottom, text="Sort ALL files now (ignore age)", command=self.sort_all_now).pack(side="right")
         return tab
 
     def refresh_preview(self):
         self.tree.delete(*self.tree.get_children())
         self.moves.clear()
-        for move in core.plan_moves(self.config_data):
+        for move in core.plan_moves(self.config_data, everything=self.show_all.get()):
             try:
                 destination = move["folder"].relative_to(move["root"])
             except ValueError:
@@ -290,8 +296,11 @@ class App(tk.Tk):
     def update_summary(self):
         count = len(self.moves)
         size = format_size(sum(move["size"] for move in self.moves.values()))
-        self.summary.config(text=f"{count} file(s) ready to move ({size})" if count
-                            else "Nothing to move: no files are old enough yet")
+        if self.show_all.get():
+            text = f"{count} file(s) of any age ({size}): select the ones to sort" if count else "No files to sort"
+        else:
+            text = f"{count} file(s) ready to move ({size})" if count else "Nothing to move: no files are old enough yet"
+        self.summary.config(text=text)
         self.move_button.config(text=f"Move {count} file(s)", state="normal" if count else "disabled")
 
     def exclude_selected(self):
@@ -315,7 +324,11 @@ class App(tk.Tk):
     def move_selected(self):
         """Move just the highlighted preview rows and leave the rest for later."""
         moves = [self.moves[row] for row in self.tree.selection() if row in self.moves]
-        if not moves or not messagebox.askyesno("Move files", f"Move only the {len(moves)} selected file(s)?"):
+        if not moves:
+            messagebox.showinfo("Move selected", "Select one or more files in the list first "
+                                "(Ctrl or Shift for several).")
+            return
+        if not messagebox.askyesno("Move files", f"Move only the {len(moves)} selected file(s)?"):
             return
         count, errors = core.move_files(moves)
         self.refresh_preview()

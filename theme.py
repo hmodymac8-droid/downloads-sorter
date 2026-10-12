@@ -118,6 +118,11 @@ def accent() -> str:
     return "Accent.TButton" if sv_ttk is not None else "TButton"
 
 
+def switch() -> str:
+    """Style name for an on/off toggle."""
+    return "Switch.TCheckbutton" if sv_ttk is not None else "TCheckbutton"
+
+
 def style_listbox(listbox: tk.Listbox) -> None:
     """Plain Tk widgets don't follow the ttk theme, so colour them to match."""
     if sv_ttk is not None:
