@@ -26,7 +26,9 @@ except ImportError:
     Image = None
 
 # Bundled files sit next to the scripts, or in PyInstaller's unpack folder.
-ICON_FILE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / "icon.ico"
+BUNDLE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+ICON_FILE = BUNDLE / "icon.ico"
+FONTS_DIR = BUNDLE / "fonts"  # DM Sans and Manrope (SIL Open Font License), loaded for this program only
 
 # The palette: near-black blue-greys with a mint accent.
 BACKGROUND = "#0d0e11"  # the page
@@ -56,6 +58,13 @@ try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
 except (AttributeError, OSError):
     pass
+# The design's fonts, made available to this process only (nothing is installed in Windows).
+# Also before the first window, so Tk sees them when it lists fonts.
+for _font_file in FONTS_DIR.glob("*.ttf") if FONTS_DIR.is_dir() else ():
+    try:
+        ctypes.windll.gdi32.AddFontResourceExW(str(_font_file), 0x10, 0)  # FR_PRIVATE
+    except (AttributeError, OSError):
+        pass
 scale = 1.0  # screen DPI / 96, set by apply()
 _tile_cache = {}  # keeps PhotoImages alive; Tk drops images nobody references
 _tile_colors = {}
@@ -155,12 +164,14 @@ def apply(window: tk.Tk) -> None:
             window.iconbitmap(default=str(ICON_FILE))
         except tk.TclError:
             pass
-    TTK_TEXT = _first_font("Segoe UI Variable Text", "Segoe UI")
-    TTK_DISPLAY = _first_font("Segoe UI Variable Display", "Segoe UI Semibold")
+    arabic = getattr(sys.modules.get("i18n"), "LANG", "en") == "ar"
+    # The design's fonts: DM Sans for text, Manrope for headings and numbers. (DM Sans's
+    # variable font names its regular face "DM Sans 14pt".) Arabic keeps the Segoe fonts below.
+    TTK_TEXT = _first_font(*(() if arabic else ("DM Sans 14pt",)), "Segoe UI Variable Text", "Segoe UI")
+    TTK_DISPLAY = _first_font(*(() if arabic else ("Manrope",)), "Segoe UI Variable Display", "Segoe UI Semibold")
     # Arabic needs care. Themed widgets get their words pre-ordered by i18n.visual(), which
     # assumes the font above (it has no Arabic, so Windows doesn't reorder it again). Plain Tk
     # widgets get Arabic as is and need a font with Arabic letters to show it right to left.
-    arabic = getattr(sys.modules.get("i18n"), "LANG", "en") == "ar"
     FONT_TEXT = "Segoe UI" if arabic else TTK_TEXT
     FONT_DISPLAY = "Segoe UI Semibold" if arabic else TTK_DISPLAY
     FONT_ICONS = _first_font("Segoe Fluent Icons", "Segoe MDL2 Assets")

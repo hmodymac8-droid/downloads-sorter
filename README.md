@@ -66,6 +66,8 @@ Settings, the history log and the activity log are stored in `%APPDATA%\Download
 
 Released under the [MIT License](LICENSE): free to use, change and share.
 
+The bundled fonts in `fonts/`, [DM Sans](https://github.com/googlefonts/dm-fonts) and [Manrope](https://github.com/googlefonts/manrope), are under the SIL Open Font License; their licence texts are next to them.
+
 ---
 
 <div dir="rtl">
