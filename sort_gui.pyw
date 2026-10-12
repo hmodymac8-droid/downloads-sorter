@@ -264,7 +264,8 @@ class App(tk.Tk):
         if splash:
             self.withdraw()  # stay hidden behind the splash card until everything is built
         theme.apply(self)
-        splash_card = theme.Splash(self, core.APP_NAME, f"Version {core.VERSION}") if splash else None
+        if splash:  # the window appears when the launch screen closes (after 2.4 s, or at a click)
+            theme.Splash(self, core.APP_NAME, "Desktop edition", on_close=self.reveal)
         theme.set_size(self, 1200, 760, 980, 640)
         self.update_info = None  # the newer release, once a check has found one
         self.config_data = core.load_config()
@@ -334,12 +335,10 @@ class App(tk.Tk):
         self.refresh_background_status(repeat=True)
         self.show_page("preview")
         self.after(1500, self.check_updates)
-        if splash_card:
-            def reveal():
-                splash_card.destroy()
-                self.deiconify()
-                theme.dark_titlebar(self)
-            self.after(1300, reveal)
+
+    def reveal(self):
+        self.deiconify()
+        theme.dark_titlebar(self)
 
     # --- About page and updates ---
 
@@ -361,6 +360,9 @@ class App(tk.Tk):
         ttk.Button(links, text="GitHub page", command=lambda: webbrowser.open(
             f"https://github.com/{core.GITHUB_REPO}")).pack(side="left")
         ttk.Button(links, text="Open settings and log folder", command=self.open_data_folder).pack(side="left", padx=6)
+        # Shown again on request, it stays until clicked (or for half a minute).
+        ttk.Button(links, text="View splash screen", command=lambda: theme.Splash(
+            self, core.APP_NAME, "Desktop edition", seconds=30)).pack(side="left")
 
         ttk.Separator(tab).pack(fill="x", pady=theme.px(8))
         ttk.Label(tab, text="Updates", style="Section.TLabel").pack(anchor="w", pady=(theme.px(6), theme.px(6)))

@@ -40,6 +40,7 @@ subprocess.run([
     sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--onedir",
     "--name", "DownloadsSorter",
     "--icon", str(HERE / "icon.ico"), "--add-data", f"{HERE / 'icon.ico'};.",
+    "--add-data", f"{HERE / 'icon.png'};.",  # the icon artwork, for large copies inside windows
     "--add-data", f"{HERE / 'fonts'};fonts",  # DM Sans and Manrope, with their licences
     "--collect-data", "sv_ttk",  # the theme's Tcl and image files
     "--hidden-import", "PIL.ImageTk", "--hidden-import", "PIL._tkinter_finder",  # for the colour tiles
