@@ -15,8 +15,10 @@ import threading
 import time
 from pathlib import Path
 
+import i18n
+
 APP_NAME = "Downloads Sorter"
-VERSION = "1.5"  # must match the tag of the GitHub release this is published as (v1.5)
+VERSION = "1.6"  # must match the tag of the GitHub release this is published as (v1.6)
 GITHUB_REPO = "hmodymac8-droid/downloads-sorter"  # where updates are looked for
 FROZEN = getattr(sys, "frozen", False)  # True inside the packaged .exe
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
@@ -31,7 +33,8 @@ REPORT_PID_FILE = DATA_DIR / "report.pid"
 DEFAULT_CONFIG = {
     "folders": [""],  # folders to sort; "" = the Downloads folder, detected automatically
     "min_age_days": 7,
-    "scan_interval_minutes": 60,  # 0 = automatic sorting disabled
+    "auto_sort": False,  # sort in the background on a schedule
+    "scan_interval_minutes": 60,  # how often automatic sorting checks; 0 also turns it off
     # "folder" is relative to the sorted folder unless it is an absolute path.
     # "min_age_days": None uses the general setting above.
     # "recycle_after_days": files this program put there go to the Recycle Bin that
@@ -54,6 +57,7 @@ DEFAULT_CONFIG = {
                    "extension": "", "name": "", "min_mb": "", "check_folder": "", "check_subfolders": True},
     "window_geometry": "",  # the main window's last size and position
     "auto_update": False,  # True = install new versions by itself; False = notify and offer
+    "language": "",  # "en", "ar", or "" to follow Windows
 }
 # Partial downloads, shortcuts and system files that must never be moved.
 SKIP_EXTENSIONS = {".crdownload", ".part", ".partial", ".download", ".opdownload", ".tmp", ".lnk", ".url"}
@@ -79,6 +83,10 @@ def load_config() -> dict:
     if "downloads_folder" in saved:  # setting from before several folders were supported
         saved.setdefault("folders", [saved.pop("downloads_folder")])
     config.update(saved)
+    if "auto_sort" not in saved:
+        # Settings from before this option existed: automatic sorting was on
+        # exactly when the program was set to start at sign-in.
+        config["auto_sort"] = autostart_enabled()
     config["folders"] = config["folders"] or [""]
     config["duplicates"] = {**DEFAULT_CONFIG["duplicates"], **config["duplicates"]}
     for category in config["categories"]:
@@ -113,6 +121,23 @@ def detect_downloads_folder() -> Path:
 
 def watched_folders(config: dict) -> list[Path]:
     return [Path(folder) if folder else detect_downloads_folder() for folder in config["folders"]]
+
+
+def language(config: dict) -> str:
+    """The interface language: the saved choice, or Arabic when Windows itself is in Arabic."""
+    if config["language"] in ("en", "ar"):
+        return config["language"]
+    try:
+        import ctypes
+
+        LANG_ARABIC = 0x01  # primary language id, the low 10 bits of the UI language
+        return "ar" if ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0x3FF == LANG_ARABIC else "en"
+    except (AttributeError, OSError):
+        return "en"
+
+
+def auto_sort_on(config: dict) -> bool:
+    return bool(config["auto_sort"]) and config["scan_interval_minutes"] > 0
 
 
 def is_paused(config: dict) -> bool:
@@ -530,13 +555,6 @@ def start_background() -> None:
     launch("--background")
 
 
-def stop_background() -> None:
-    pid = background_pid()
-    if pid:
-        run_quiet(["taskkill", "/PID", str(pid), "/F"])
-    PID_FILE.unlink(missing_ok=True)
-
-
 def open_report() -> None:
     """Show the report window, unless one is already open (it refreshes itself)."""
     if not running_pid(REPORT_PID_FILE):
@@ -679,12 +697,11 @@ class Background:
         last_run = 0.0
         while not self.stopping:
             config = load_config()  # reread every tick so GUI changes apply at once
-            interval = config["scan_interval_minutes"]
-            if interval <= 0:
-                log.info("Interval is 0: automatic sorting is disabled; exiting")
-                break
+            i18n.LANG = language(config)  # follows a language change made in Settings
             self.check_updates(config)
-            due = time.time() - last_run >= interval * 60 and not is_paused(config)
+            # With automatic sorting off this process keeps running, for the tray icon and updates.
+            due = (auto_sort_on(config) and not is_paused(config)
+                   and time.time() - last_run >= config["scan_interval_minutes"] * 60)
             if self.sort_now or due:
                 self.sort_now = False
                 last_run = time.time()
@@ -713,15 +730,20 @@ class Background:
     def notify(self, message: str) -> None:
         if self.icon:
             try:
-                self.icon.notify(message, APP_NAME)
+                self.icon.notify(i18n.tr(message), APP_NAME)
             except Exception as error:  # a failed toast must not stop the sorter
                 log.warning("Notification failed: %s", error)
 
     def show_state(self, config: dict) -> None:
-        paused = is_paused(config)
-        if self.icon and paused != self.shown_state:
-            self.shown_state = paused
-            self.icon.title = f"{APP_NAME}: paused until {config['paused_until']}" if paused else f"{APP_NAME}: on"
+        if not auto_sort_on(config):
+            state = "automatic sorting is off"
+        elif is_paused(config):
+            state = f"paused until {config['paused_until']}"
+        else:
+            state = "automatic sorting is on"
+        if self.icon and state != self.shown_state:
+            self.shown_state = state
+            self.icon.title = f"{APP_NAME}: {i18n.tr(state)}"
             self.icon.update_menu()
 
     # tray menu actions
@@ -761,12 +783,9 @@ def run_background() -> None:
     if background_pid():
         log.info("Already running; exiting")
         return
-    if load_config()["scan_interval_minutes"] <= 0:
-        log.info("Interval is 0: automatic sorting is disabled; not starting")
-        return
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PID_FILE.write_text(str(os.getpid()))
-    log.info("Background sorting started")
+    log.info("Background started (tray icon, updates, and automatic sorting when it is on)")
     background = Background()
     try:
         try:
@@ -785,18 +804,20 @@ def run_background() -> None:
 def make_tray_icon(pystray, background: Background):
     """The tray icon with its right-click menu; double-click opens the program."""
     item = pystray.MenuItem
+    tr = i18n.tr
+    # Texts are functions so the menu follows a language change without a restart.
     return pystray.Icon("DownloadsSorter", tray_image(), APP_NAME, pystray.Menu(
-        item(f"Open {APP_NAME}", lambda *_: launch(), default=True),
-        item("Sort now", background.request_sort),
-        item(lambda _: "Resume sorting" if is_paused(load_config()) else "Pause for today", background.toggle_pause),
-        item("Show report", lambda *_: open_report()),
+        item(lambda _: tr(f"Open {APP_NAME}"), lambda *_: launch(), default=True),
+        item(lambda _: tr("Sort now"), background.request_sort),
+        item(lambda _: tr("Resume sorting" if is_paused(load_config()) else "Pause for today"), background.toggle_pause),
+        item(lambda _: tr("Show report"), lambda *_: open_report()),
         # Only shown once a newer version is found. Runs on its own thread so the
         # menu doesn't freeze during the download.
-        item(lambda _: f"Install version {background.update['version']}" if background.update else "Install update",
+        item(lambda _: tr(f"Install version {background.update['version']}" if background.update else "Install update"),
              lambda *_: threading.Thread(target=background.install_update, daemon=True).start(),
              visible=lambda _: background.update is not None),
         pystray.Menu.SEPARATOR,
-        item("Exit (starts again at next sign-in)", background.quit),
+        item(lambda _: tr("Exit"), background.quit),
     ))
 
 
