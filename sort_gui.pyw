@@ -40,7 +40,8 @@ def report_result(parent, message, errors):
 
 
 def attach_file_menu(tree, path_for_row, on_change, extra=()):
-    """Give a file list a right-click menu: show in Explorer, open, delete.
+    """Give a file list a right-click menu (show in Explorer, open, delete) and
+    make double-click show the file in Explorer.
 
     path_for_row(row id) returns where that row's file is now, or None.
     extra adds (label, function(path)) items above Delete.
@@ -98,6 +99,8 @@ def attach_file_menu(tree, path_for_row, on_change, extra=()):
             menu.tk_popup(event.x_root, event.y_root)
 
     tree.bind("<Button-3>", popup)
+    # Double-clicking a file row (not a column heading) shows it in File Explorer.
+    tree.bind("<Double-1>", lambda event: show() if tree.identify_row(event.y) else None)
 
 
 def add_scrolled_tree(parent, columns, first=None, **options):
