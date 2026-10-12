@@ -55,6 +55,7 @@ DEFAULT_CONFIG = {
     # "check_folder": the folder "Check copies in folder" looks at; "" = the folder above.
     "duplicates": {"source": "sorted", "folder": "", "recursive": True, "mode": "content",
                    "extension": "", "name": "", "min_mb": "", "check_folder": "", "check_subfolders": True},
+    "cleaner": {"categories": None},  # keys ticked on the Cleaner page; None = the defaults
     "window_geometry": "",  # the main window's last size and position
     "auto_update": False,  # True = install new versions by itself; False = notify and offer
     "language": "",  # "en", "ar", or "" to follow Windows
@@ -89,6 +90,7 @@ def load_config() -> dict:
         config["auto_sort"] = autostart_enabled()
     config["folders"] = config["folders"] or [""]
     config["duplicates"] = {**DEFAULT_CONFIG["duplicates"], **config["duplicates"]}
+    config["cleaner"] = {**DEFAULT_CONFIG["cleaner"], **config["cleaner"]}
     for category in config["categories"]:
         category.setdefault("min_age_days", None)
         category.setdefault("recycle_after_days", 0)
@@ -416,16 +418,21 @@ def restore_from_recycle_bin(original: Path) -> None:
     record.unlink(missing_ok=True)
 
 
-def delete_files(paths: list[Path], permanent: bool = False) -> tuple[int, list[str]]:
+def delete_files(paths: list[Path], permanent: bool = False, progress=None, cancel=None) -> tuple[int, list[str]]:
     """Recycle files and log each one so it can be brought back from History.
 
     permanent=True deletes them for good instead; they are still logged, but
-    nothing can bring them back.
+    nothing can bring them back. progress(done, total) is called as it goes,
+    and setting the cancel event stops it (what was deleted is still logged).
     """
     history = load_history()
     active = {norm(move[1]): move for run in history for move in run["moves"] if is_active(move)}
     unlogged, errors, count = [], [], 0
-    for path in paths:
+    for done, path in enumerate(paths):
+        if cancel is not None and cancel.is_set():
+            break
+        if progress is not None:
+            progress(done, len(paths))
         try:
             path.unlink() if permanent else recycle(path)
         except OSError as error:
