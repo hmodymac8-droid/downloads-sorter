@@ -5,7 +5,6 @@ plain scripts and as the packaged DownloadsSorter.exe (see build.py).
 """
 
 import fnmatch
-import hashlib
 import json
 import logging
 import os
@@ -14,7 +13,6 @@ import subprocess
 import sys
 import threading
 import time
-from collections import defaultdict
 from pathlib import Path
 
 APP_NAME = "Downloads Sorter"
@@ -48,6 +46,9 @@ DEFAULT_CONFIG = {
     "ignore": [],  # file names or patterns (*.torrent) that are never moved
     "paused_until": "",  # "YYYY-MM-DD HH:MM"; automatic runs wait until then
     "after_run": "window",  # "window" = report window, "notify" = tray notification only
+    # The Duplicates page. "source": "sorted" = the sorted folders, "folder" = the one below.
+    "duplicates": {"source": "sorted", "folder": "", "recursive": True, "mode": "content",
+                   "extension": "", "name": "", "min_mb": "", "check_subfolders": True},
 }
 # Partial downloads, shortcuts and system files that must never be moved.
 SKIP_EXTENSIONS = {".crdownload", ".part", ".partial", ".download", ".opdownload", ".tmp", ".lnk", ".url"}
@@ -74,6 +75,7 @@ def load_config() -> dict:
         saved.setdefault("folders", [saved.pop("downloads_folder")])
     config.update(saved)
     config["folders"] = config["folders"] or [""]
+    config["duplicates"] = {**DEFAULT_CONFIG["duplicates"], **config["duplicates"]}
     for category in config["categories"]:
         category.setdefault("min_age_days", None)
         category.setdefault("recycle_after_days", 0)
@@ -439,49 +441,6 @@ def cleanup_expired(config: dict) -> int:
     if count:
         save_history(history)
     return count
-
-
-# --- duplicates ---
-
-def file_hash(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as file:
-        while chunk := file.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def find_duplicates(config: dict) -> list[list[Path]]:
-    """Groups of byte-identical files in the sorted folders and their category
-    folders. The first file of each group is the one to keep."""
-    by_size, seen = defaultdict(list), set()
-    for root in watched_folders(config):
-        folders = [root] + [root / category["folder"] for category in config["categories"]]
-        if config["other_folder"]:
-            folders.append(root / config["other_folder"])
-        for folder in folders:
-            if norm(folder) in seen:
-                continue
-            seen.add(norm(folder))
-            try:
-                for item in folder.iterdir():
-                    if item.is_file() and not is_skipped(item) and (size := item.stat().st_size):
-                        by_size[size].append(item)
-            except OSError:
-                continue
-    groups = []
-    for paths in by_size.values():
-        if len(paths) < 2:
-            continue  # a unique size can't have a twin, so it never needs hashing
-        by_hash = defaultdict(list)
-        for path in paths:
-            try:
-                by_hash[file_hash(path)].append(path)
-            except OSError:
-                continue
-        # Keep the shortest name: "report.pdf" rather than "report (1).pdf".
-        groups += [sorted(group, key=lambda p: (len(p.name), norm(p))) for group in by_hash.values() if len(group) > 1]
-    return sorted(groups, key=lambda group: group[0].name.lower())
 
 
 def setup_logging() -> None:
