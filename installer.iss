@@ -1,4 +1,6 @@
-﻿; Inno Setup script for Downloads Sorter. build.py compiles it and passes
+﻿; SPDX-License-Identifier: GPL-3.0-only
+; Copyright (c) 2026 hmodymac8-droid
+; Inno Setup script for Downloads Sorter. build.py compiles it and passes
 ; AppVersion and DistDir (the packaged program folder) on the command line.
 ;
 ; A standard per-user setup wizard: no administrator rights, proper uninstaller,
@@ -28,6 +30,8 @@
 AppId={#AppId}
 AppName={#AppName}
 AppVersion={#AppVersion}
+AppPublisher=hmodymac8-droid
+AppCopyright=Copyright (c) 2026 hmodymac8-droid
 AppPublisherURL=https://github.com/hmodymac8-droid/downloads-sorter
 AppSupportURL=https://github.com/hmodymac8-droid/downloads-sorter/issues
 AppUpdatesURL=https://github.com/hmodymac8-droid/downloads-sorter/releases

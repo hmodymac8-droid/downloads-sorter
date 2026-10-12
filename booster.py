@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 hmodymac8-droid
 """Make the PC start and run lighter: startup apps, memory-hungry programs and
 the power plan.
 

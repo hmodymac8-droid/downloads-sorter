@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 hmodymac8-droid
 """Sort old files in the Downloads folder into category folders.
 
 This is the engine; sort_gui.pyw is the program people run. It works both as
@@ -18,7 +20,7 @@ from pathlib import Path
 import i18n
 
 APP_NAME = "Downloads Sorter"
-VERSION = "1.7"  # must match the tag of the GitHub release this is published as (v1.7)
+VERSION = "1.8"  # must match the tag of the GitHub release this is published as (v1.8)
 GITHUB_REPO = "hmodymac8-droid/downloads-sorter"  # where updates are looked for
 FROZEN = getattr(sys, "frozen", False)  # True inside the packaged .exe
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent

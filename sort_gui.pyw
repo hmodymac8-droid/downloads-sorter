@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 hmodymac8-droid
 """Downloads Sorter: control panel, report window and background entry point."""
 
 import os
@@ -350,7 +352,7 @@ class App(tk.Tk):
         text = ttk.Frame(head)
         text.pack(side="left")
         ttk.Label(text, text=core.APP_NAME, style="Title.TLabel").pack(anchor="w")
-        ttk.Label(text, text=f"Version {core.VERSION}  ·  MIT License", foreground="gray").pack(anchor="w")
+        ttk.Label(text, text=f"Version {core.VERSION}  ·  GPL v3  ·  © 2026 hmodymac8-droid", foreground="gray").pack(anchor="w")
         ttk.Label(tab, wraplength=theme.px(620), justify="left", text=(
             "Keeps your Downloads folder tidy by moving old files into category folders, "
             "automatically or only when you say so. Every change is logged and can be undone."

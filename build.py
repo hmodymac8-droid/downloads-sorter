@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 hmodymac8-droid
 """Build DownloadsSorterSetup.exe, a standard Windows setup wizard.
 
 Needs:  py -m pip install pyinstaller pystray pillow sv-ttk cryptography

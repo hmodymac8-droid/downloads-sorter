@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 hmodymac8-droid
 """A password-protected vault: files moved in are encrypted, and can only be
 read again by opening them from the vault or moving them back out.
 

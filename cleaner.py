@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 hmodymac8-droid
 """Find junk files that are safe to remove: temporary files, browser caches,
 crash reports, Windows Update downloads and the like.
 

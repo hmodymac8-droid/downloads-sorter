@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 hmodymac8-droid
 """Arabic translations for the interface. See i18n.py for how they are used.
 
 EXACT maps fixed English text to Arabic. TEMPLATES does the same for text with
@@ -608,7 +610,7 @@ TEMPLATES = {
 
     # About page and updates
     "Version {0}": "النسخة {0}",
-    "Version {0}  ·  MIT License": "النسخة {0}  ·  رخصة MIT",
+    "Version {0}  ·  GPL v3  ·  © 2026 hmodymac8-droid": "النسخة {0}  ·  رخصة GPL v3  ·  © 2026 hmodymac8-droid",
     "Version {0} is available (you have {1}).": "النسخة {0} متوفرة (لديك {1}).",
     "No newer version found. You have version {0}.": "لا توجد نسخة أحدث. لديك النسخة {0}.",
     "Download and install version {0} now?\n\n{1} will close and reopen by itself.":

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (c) 2026 hmodymac8-droid
 """Build icon.ico from icon.png, the app icon artwork (needs Pillow).
 
     py make_icon.py

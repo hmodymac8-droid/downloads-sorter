@@ -64,7 +64,9 @@ Settings, the history log and the activity log are stored in `%APPDATA%\Download
 
 ## License
 
-Released under the [MIT License](LICENSE): free to use, change and share.
+Copyright (c) 2026 hmodymac8-droid.
+
+Released under the [GNU General Public License, version 3](LICENSE). You are free to use, change and share it, including commercially, but any version you distribute must keep this copyright notice, say what you changed, and come with its full source code under the same license.
 
 The bundled fonts in `fonts/`, [DM Sans](https://github.com/googlefonts/dm-fonts) and [Manrope](https://github.com/googlefonts/manrope), are under the SIL Open Font License; their licence texts are next to them.
 
@@ -131,6 +133,8 @@ python build.py
 
 ### الترخيص
 
-البرنامج منشور بموجب [رخصة MIT](LICENSE): يحق لك استخدامه وتعديله ومشاركته بحرية.
+حقوق النشر (c) 2026 hmodymac8-droid.
+
+البرنامج منشور بموجب [رخصة جنو العمومية، الإصدار 3](LICENSE). يحق لك استخدامه وتعديله ومشاركته، حتى تجاريًا، بشرط أن تُبقي أي نسخة توزّعها على إشعار حقوق النشر هذا، وأن توضّح ما غيّرته، وأن ترفق شيفرتها المصدرية كاملة بالرخصة نفسها.
 
 </div>
