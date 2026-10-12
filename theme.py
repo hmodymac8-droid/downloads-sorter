@@ -28,7 +28,10 @@ except ImportError:
     Image = None
 
 # Bundled files sit next to the scripts, or in PyInstaller's unpack folder.
-ICON_FILE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / "icon.ico"
+BUNDLE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+ICON_FILE = BUNDLE / "icon.ico"
+ICON_ART = BUNDLE / "icon.png"  # the app icon at 512x512, for sharp large copies inside windows
+FONTS_DIR = BUNDLE / "fonts"  # DM Sans and Manrope (SIL Open Font License), loaded for this program only
 
 # The palette: near-black blue-greys with a mint accent.
 BACKGROUND = "#0d0e11"  # the page
@@ -58,6 +61,13 @@ try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
 except (AttributeError, OSError):
     pass
+# The design's fonts, made available to this process only (nothing is installed in Windows).
+# Also before the first window, so Tk sees them when it lists fonts.
+for _font_file in FONTS_DIR.glob("*.ttf") if FONTS_DIR.is_dir() else ():
+    try:
+        ctypes.windll.gdi32.AddFontResourceExW(str(_font_file), 0x10, 0)  # FR_PRIVATE
+    except (AttributeError, OSError):
+        pass
 scale = 1.0  # screen DPI / 96, set by apply()
 _tile_cache = {}  # keeps PhotoImages alive; Tk drops images nobody references
 _tile_colors = {}
@@ -157,12 +167,14 @@ def apply(window: tk.Tk) -> None:
             window.iconbitmap(default=str(ICON_FILE))
         except tk.TclError:
             pass
-    TTK_TEXT = _first_font("Segoe UI Variable Text", "Segoe UI")
-    TTK_DISPLAY = _first_font("Segoe UI Variable Display", "Segoe UI Semibold")
+    arabic = getattr(sys.modules.get("i18n"), "LANG", "en") == "ar"
+    # The design's fonts: DM Sans for text, Manrope for headings and numbers. (DM Sans's
+    # variable font names its regular face "DM Sans 14pt".) Arabic keeps the Segoe fonts below.
+    TTK_TEXT = _first_font(*(() if arabic else ("DM Sans 14pt",)), "Segoe UI Variable Text", "Segoe UI")
+    TTK_DISPLAY = _first_font(*(() if arabic else ("Manrope",)), "Segoe UI Variable Display", "Segoe UI Semibold")
     # Arabic needs care. Themed widgets get their words pre-ordered by i18n.visual(), which
     # assumes the font above (it has no Arabic, so Windows doesn't reorder it again). Plain Tk
     # widgets get Arabic as is and need a font with Arabic letters to show it right to left.
-    arabic = getattr(sys.modules.get("i18n"), "LANG", "en") == "ar"
     FONT_TEXT = "Segoe UI" if arabic else TTK_TEXT
     FONT_DISPLAY = "Segoe UI Semibold" if arabic else TTK_DISPLAY
     FONT_ICONS = _first_font("Segoe Fluent Icons", "Segoe MDL2 Assets")
@@ -310,9 +322,11 @@ def checkbox(checked: bool):
 
 
 def brand_mark(size: int):
-    """The program's mark: a mint rounded square with an arrow down onto a line."""
+    """The program's mark: the app icon, or (without its artwork) a mint square with an arrow."""
     if Image is None:
         return ""
+    if ICON_ART.exists():
+        return app_icon(size)
     key = ("brand", size, scale)
     if key not in _tile_cache:
         big = px(size) * 4
@@ -330,12 +344,15 @@ def brand_mark(size: int):
 
 def app_icon(size: int):
     """The app icon as an image for a label, `size` pixels at 100% scaling ("" without Pillow)."""
-    if Image is None or not ICON_FILE.exists():
+    if Image is None or not (ICON_ART.exists() or ICON_FILE.exists()):
         return ""
     key = ("icon", size, scale)
     if key not in _tile_cache:
-        icon = Image.open(ICON_FILE)
-        icon.size = max(icon.info.get("sizes", [icon.size]))  # pick the largest picture in the .ico
+        if ICON_ART.exists():
+            icon = Image.open(ICON_ART)
+        else:
+            icon = Image.open(ICON_FILE)
+            icon.size = max(icon.info.get("sizes", [icon.size]))  # pick the largest picture in the .ico
         _tile_cache[key] = ImageTk.PhotoImage(icon.convert("RGBA").resize((px(size), px(size)), Image.LANCZOS))
     return _tile_cache[key]
 
@@ -482,20 +499,94 @@ def fit_height(window: tk.Misc, minimum: int = 760) -> None:
 
 
 class Splash(tk.Toplevel):
-    """A small borderless card shown in the middle of the screen while the program starts."""
+    """The launch screen: the app icon between two corner marks, the name, the tagline,
+    three bars that grow in, and a button to go straight to the workspace.
 
-    def __init__(self, parent: tk.Tk, name: str, detail: str):
+    Shown in the middle of the screen while the program starts, and again from
+    Help & about. It closes itself after `seconds`, or at a click or key press.
+    """
+
+    WIDTH, HEIGHT = 620, 520
+
+    def __init__(self, parent: tk.Tk, name: str, detail: str, seconds: float = 2.4, on_close=None):
         super().__init__(parent)
         self.overrideredirect(True)  # no title bar or border
-        self.configure(background=SIDEBAR, highlightthickness=1, highlightbackground=BORDER)
-        width, height = px(380), px(250)
+        self.configure(background=BACKGROUND, highlightthickness=1, highlightbackground=BORDER)
+        self.on_close = on_close
+        width, height = px(self.WIDTH), px(self.HEIGHT)
         self.geometry(f"{width}x{height}+{(self.winfo_screenwidth() - width) // 2}"
                       f"+{(self.winfo_screenheight() - height) // 2}")
-        tk.Label(self, image=brand_mark(72) or app_icon(84), background=SIDEBAR).pack(pady=(px(40), px(16)))
-        tk.Label(self, text=name, background=SIDEBAR, foreground=TEXT, font=(FONT_DISPLAY, 16)).pack()
-        tk.Label(self, text=detail, background=SIDEBAR, foreground=MUTED, font=(FONT_TEXT, 9)).pack(pady=(px(4), 0))
+        frame = tk.Frame(self, background=BACKGROUND, padx=px(32), pady=px(24))
+        frame.pack(fill="both", expand=True)
+
+        head = tk.Frame(frame, background=BACKGROUND)
+        head.pack(fill="x")
+        label(head, name.upper(), TEXT, 8, "bold").pack(side="left")
+        label(head, detail, MUTED, 8).pack(side="right")
+        tk.Frame(frame, background=BORDER, height=1).pack(fill="x", pady=(px(16), 0))
+
+        foot = tk.Frame(frame, background=BACKGROUND)
+        foot.pack(side="bottom", fill="x")
+        label(foot, "●", PRIMARY, 7).pack(side="left")
+        label(foot, "A fresh start.", MUTED, 8).pack(side="left", padx=(px(8), 0))
+        label(foot, "Less clutter. More clarity.", MUTED, 8).pack(side="right")
+        tk.Frame(frame, background=BORDER, height=1).pack(side="bottom", fill="x", pady=(0, px(16)))
+
+        center = tk.Frame(frame, background=BACKGROUND)
+        center.pack(expand=True)
+        # The icon between two corner marks, top-left and bottom-right, like the design.
+        stage, mark = px(150), px(16)
+        canvas = tk.Canvas(center, width=stage, height=stage, background=BACKGROUND, highlightthickness=0)
+        canvas.pack()
+        canvas.create_line(1, mark, 1, 1, mark, 1, fill=CONTROL_BORDER)
+        canvas.create_line(stage - mark, stage - 2, stage - 2, stage - 2, stage - 2, stage - mark, fill=CONTROL_BORDER)
+        canvas.create_image(stage // 2, stage // 2, image=app_icon(118))
+        # "Downloads Sorter." with "Sorter." in the accent, drawn so the name stays as it is in every language.
+        first, _, rest = name.partition(" ")
+        font = tkfont.Font(family=FONT_DISPLAY, size=26, weight="bold")
+        title = tk.Canvas(center, background=BACKGROUND, highlightthickness=0, height=font.metrics("linespace"),
+                          width=font.measure(f"{first} {rest}.") + 4)
+        title.pack(pady=(px(18), 0))
+        title.create_text(0, 0, text=first + " ", fill=TEXT, font=font, anchor="nw")
+        title.create_text(font.measure(first + " "), 0, text=rest + ".", fill=PRIMARY, font=font, anchor="nw")
+        label(center, "Your digital space, sorted.", MUTED, 11).pack(pady=(px(8), 0))
+        self.bars = tk.Canvas(center, width=px(116), height=px(3), background=BACKGROUND, highlightthickness=0)
+        self.bars.pack(pady=(px(22), 0))
+        enter = label(center, "Open workspace  →", MUTED, 10, cursor="hand2")
+        enter.pack(pady=(px(16), 0))
+        enter.bind("<Enter>", lambda _: enter.configure(foreground=TEXT))
+        enter.bind("<Leave>", lambda _: enter.configure(foreground=MUTED))
+
+        for widget in [self, frame, center, canvas, title, enter]:
+            widget.bind("<Button-1>", lambda _: self.close())
+        self.bind("<Key>", lambda _: self.close())
         self.attributes("-topmost", True)
-        self.update()  # paint now; the main window is still being built
+        self.started = None
+        self.grow_bars()
+        self.focus_force()
+        self.closer = self.after(round(seconds * 1000), self.close)
+        self.update()  # paint now; the main window may still be being built
+
+    def grow_bars(self, step: int = 0) -> None:
+        """The three bars scale in one after another, like the design's animation."""
+        self.bars.delete("all")
+        width, gap = px(116), px(5)
+        each = (width - 2 * gap) / 3
+        for index, color in enumerate((PRIMARY, BLUE, CONTROL_BORDER)):
+            progress = max(0.0, min(1.0, (step - index * 3) / 18))
+            x0 = index * (each + gap)
+            if progress:
+                self.bars.create_rectangle(x0, 0, x0 + each * progress, px(3), fill=color, outline="")
+        if step < 24 and self.winfo_exists():
+            self.after(30, self.grow_bars, step + 1)
+
+    def close(self) -> None:
+        if not self.winfo_exists():
+            return
+        self.after_cancel(self.closer)
+        self.destroy()
+        if self.on_close:
+            self.on_close()
 
 
 class NavItem(tk.Canvas):
@@ -553,7 +644,7 @@ class Sidebar(tk.Frame):
         tk.Frame(self, background=BORDER, width=1).pack(side="right", fill="y")
         brand = tk.Frame(self, background=SIDEBAR)
         brand.pack(fill="x", padx=px(22), pady=(px(26), 0))
-        tk.Label(brand, image=brand_mark(38), background=SIDEBAR).pack(side="left")
+        tk.Label(brand, image=brand_mark(42), background=SIDEBAR).pack(side="left")
         # The name is drawn on a canvas: it stays as it is in every language.
         first, _, rest = title.partition(" ")
         font = tkfont.Font(family=FONT_DISPLAY, size=11, weight="bold")

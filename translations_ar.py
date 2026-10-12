@@ -539,6 +539,20 @@ EXACT = {
         'ابحث في السجل…',
     'Moved files':
         'الملفات المنقولة',
+
+    # launch screen
+    'Desktop edition':
+        'إصدار سطح المكتب',
+    'Your digital space, sorted.':
+        'مساحتك الرقمية، مرتّبة.',
+    'Open workspace  →':
+        'افتح مساحة العمل  ←',
+    'A fresh start.':
+        'بداية جديدة.',
+    'Less clutter. More clarity.':
+        'فوضى أقل، ووضوح أكثر.',
+    'View splash screen':
+        'عرض شاشة البداية',
 }
 
 TEMPLATES = {
