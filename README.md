@@ -34,12 +34,14 @@ pythonw sort_gui.pyw
 
 ## Build the installer
 
+Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`).
+
 ```
 pip install pyinstaller
 python build.py
 ```
 
-This produces `DownloadsSorterSetup.exe` next to the scripts.
+This produces `DownloadsSorterSetup.exe`, a standard Windows setup wizard in English and Arabic, next to the scripts.
 
 ## How it works
 
@@ -48,11 +50,15 @@ This produces `DownloadsSorterSetup.exe` next to the scripts.
 | `sort_downloads.py` | The engine: rules, moving, history, undo, duplicates, background loop and tray icon |
 | `sort_gui.pyw` | The windows: control panel, report window, and the program's entry point |
 | `theme.py` | Look and feel: dark theme, sidebar, colour tiles, display scaling |
-| `installer.py` | The setup program |
-| `build.py` | Packages everything into the installer with PyInstaller |
+| `installer.iss` | The setup wizard (Inno Setup script) |
+| `build.py` | Packages the program with PyInstaller and compiles the setup wizard |
 | `make_icon.py` | Draws the app icon |
 
 Settings, the history log and the activity log are stored in `%APPDATA%\DownloadsSorter`.
+
+## License
+
+Released under the [MIT License](LICENSE): free to use, change and share.
 
 ---
 
@@ -96,6 +102,8 @@ pythonw sort_gui.pyw
 
 ### بناء ملف التثبيت
 
+يتطلب [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`).
+
 </div>
 
 ```
@@ -105,10 +113,14 @@ python build.py
 
 <div dir="rtl">
 
-ينتج عن ذلك الملف `DownloadsSorterSetup.exe` بجانب ملفات البرنامج.
+ينتج عن ذلك الملف `DownloadsSorterSetup.exe`، وهو معالج تثبيت ويندوز قياسي بالعربية والإنجليزية، بجانب ملفات البرنامج.
 
 ### أين تُحفظ البيانات
 
 الإعدادات وسجل التغييرات وسجل النشاط تُحفظ في المجلد `%APPDATA%\DownloadsSorter`.
+
+### الترخيص
+
+البرنامج منشور بموجب [رخصة MIT](LICENSE): يحق لك استخدامه وتعديله ومشاركته بحرية.
 
 </div>

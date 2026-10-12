@@ -18,7 +18,7 @@ from collections import defaultdict
 from pathlib import Path
 
 APP_NAME = "Downloads Sorter"
-VERSION = "1.4"  # must match the tag of the GitHub release this is published as (v1.4)
+VERSION = "1.5"  # must match the tag of the GitHub release this is published as (v1.5)
 GITHUB_REPO = "hmodymac8-droid/downloads-sorter"  # where updates are looked for
 FROZEN = getattr(sys, "frozen", False)  # True inside the packaged .exe
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
@@ -578,6 +578,7 @@ def open_report() -> None:
 
 # --- updates (from the project's GitHub releases) ---
 
+EXE_NAME = "DownloadsSorter.exe"  # the packaged program, as named in build.py and installer.iss
 UPDATE_MARKER = DATA_DIR / "updated.txt"  # written by the installer after a silent update
 UPDATE_CHECK_HOURS = 24
 
@@ -629,15 +630,17 @@ def download_update(update: dict) -> Path:
 
 
 def apply_update(installer: Path, reopen: bool = False) -> None:
-    """Run the downloaded installer without its window. It closes this program,
-    replaces it and starts it again, so the caller should exit right after."""
-    subprocess.Popen([str(installer), "--update"] + (["--reopen"] if reopen else []),
+    """Run the downloaded setup without its wizard (Inno Setup's silent mode). It
+    closes this program, replaces it and starts it again, so the caller should
+    exit right after. See installer.iss for what "/reopen=1" does."""
+    subprocess.Popen([str(installer), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]
+                     + (["/reopen=1"] if reopen else []),
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def is_installed() -> bool:
-    """True for the installed program; a copy run from source can't replace itself."""
-    return FROZEN and APP_DIR == INSTALL_DIR.resolve()
+    """True for the packaged program; a copy run from source can't replace itself."""
+    return FROZEN
 
 
 def window_is_open() -> bool:
@@ -830,16 +833,3 @@ def make_tray_icon(pystray, background: Background):
     ))
 
 
-# --- install locations (used by installer.py and by --uninstall) ---
-
-INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Programs" / APP_NAME
-EXE_NAME = "DownloadsSorter.exe"
-UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\DownloadsSorter"
-
-
-def start_menu_shortcut() -> Path:
-    return shell_folder("Programs", Path(os.environ.get("APPDATA", "")) / r"Microsoft\Windows\Start Menu\Programs") / f"{APP_NAME}.lnk"
-
-
-def desktop_shortcut() -> Path:
-    return shell_folder("Desktop", Path.home() / "Desktop") / f"{APP_NAME}.lnk"

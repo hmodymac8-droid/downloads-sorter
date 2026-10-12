@@ -262,7 +262,7 @@ class App(tk.Tk):
         text = ttk.Frame(head)
         text.pack(side="left")
         ttk.Label(text, text=core.APP_NAME, style="Title.TLabel").pack(anchor="w")
-        ttk.Label(text, text=f"Version {core.VERSION}", foreground="gray").pack(anchor="w")
+        ttk.Label(text, text=f"Version {core.VERSION}  ·  MIT License", foreground="gray").pack(anchor="w")
         ttk.Label(tab, wraplength=theme.px(620), justify="left", text=(
             "Keeps your Downloads folder tidy by moving old files into category folders, "
             "automatically or only when you say so. Every change is logged and can be undone."
@@ -949,40 +949,11 @@ class ReportWindow(tk.Tk):
         self.destroy()
 
 
-def uninstall():
-    """Remove the installed program. Settings and undo history are kept."""
-    import tempfile
-    import winreg
-
-    root = tk.Tk()
-    root.withdraw()
-    if not core.FROZEN or core.APP_DIR != core.INSTALL_DIR.resolve():
-        messagebox.showinfo("Uninstall", "This copy was not installed, so there is nothing to uninstall.")
-        return
-    if not messagebox.askyesno("Uninstall", f"Remove {core.APP_NAME} from this computer?\n\n"
-                               "Files that were already sorted stay where they are."):
-        return
-    core.stop_background()
-    core.set_autostart(False)
-    for shortcut in (core.start_menu_shortcut(), core.desktop_shortcut()):
-        shortcut.unlink(missing_ok=True)
-    try:
-        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, core.UNINSTALL_KEY)
-    except OSError:
-        pass
-    messagebox.showinfo("Uninstall", f"{core.APP_NAME} has been removed.")
-    # A running exe can't delete its own folder, so a helper does it after we exit.
-    subprocess.Popen(f'cmd /c ping -n 4 127.0.0.1 >nul & rmdir /s /q "{core.INSTALL_DIR}"',
-                     cwd=tempfile.gettempdir(), stdin=subprocess.DEVNULL, creationflags=core.NO_WINDOW)
-
-
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     if mode == "--background":
         core.run_background()
     elif mode == "--report":
         ReportWindow().mainloop()
-    elif mode == "--uninstall":
-        uninstall()
     else:
         App(splash=True).mainloop()
