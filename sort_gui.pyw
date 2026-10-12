@@ -5,11 +5,13 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+import duplicates
 import sort_downloads as core
 import theme
 
@@ -38,6 +40,42 @@ def report_result(parent, message, errors):
         messagebox.showwarning("Done", f"{message}\n\n{len(errors)} failed:\n{shown}", parent=parent)
     else:
         messagebox.showinfo("Done", message, parent=parent)
+
+
+def ask_delete_how(parent, message):
+    """Ask whether to recycle or delete for good. Returns "recycle", "permanent" or None."""
+    dialog = tk.Toplevel(parent)
+    dialog.title("Delete")
+    dialog.transient(parent)
+    dialog.resizable(False, False)
+    dialog.configure(background=theme.BACKGROUND)
+    theme.dark_titlebar(dialog)
+    answer = []
+    frame = ttk.Frame(dialog, padding=theme.px(18))
+    frame.pack(fill="both", expand=True)
+    ttk.Label(frame, text=message, justify="left", wraplength=theme.px(460)).pack(anchor="w")
+    ttk.Label(frame, text="Files sent to the Recycle Bin can be brought back from History.",
+              style="Muted.TLabel").pack(anchor="w", pady=(theme.px(10), 0))
+    buttons = ttk.Frame(frame)
+    buttons.pack(fill="x", pady=(theme.px(16), 0))
+
+    def choose(value):
+        answer.append(value)
+        dialog.destroy()
+
+    ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="right")
+    ttk.Button(buttons, text="Delete for good", command=lambda: choose("permanent")).pack(side="right", padx=6)
+    recycle = ttk.Button(buttons, text="Move to Recycle Bin", style=theme.accent(), command=lambda: choose("recycle"))
+    recycle.pack(side="right")
+    dialog.bind("<Escape>", lambda _: dialog.destroy())
+    dialog.bind("<Return>", lambda _: choose("recycle"))
+    dialog.update_idletasks()
+    dialog.geometry(f"+{parent.winfo_rootx() + (parent.winfo_width() - dialog.winfo_width()) // 2}"
+                    f"+{parent.winfo_rooty() + (parent.winfo_height() - dialog.winfo_height()) // 3}")
+    recycle.focus_set()
+    dialog.grab_set()
+    parent.wait_window(dialog)
+    return answer[0] if answer else None
 
 
 def attach_file_menu(tree, path_for_row, on_change, extra=()):
@@ -205,6 +243,12 @@ class App(tk.Tk):
         theme.set_size(self, 1200, 760, 980, 640)
         self.update_info = None  # the newer release, once a check has found one
         self.config_data = core.load_config()
+        if self.config_data["window_geometry"]:
+            try:
+                self.geometry(self.config_data["window_geometry"])
+            except tk.TclError:
+                pass
+        self.protocol("WM_DELETE_WINDOW", self.close)
         self.moves = {}  # preview row id -> planned move
         for category in self.config_data["categories"]:
             theme.tile(group=Path(category["folder"]).name)  # fixes each folder's tile colour, in settings order
@@ -355,9 +399,14 @@ class App(tk.Tk):
                 self.update_status.config(text=f"The download failed: {result[0]}")
             else:
                 core.apply_update(result[0], reopen=True)
-                self.destroy()  # the installer needs every window closed
+                self.close()  # the installer needs every window closed
 
         done()
+
+    def close(self):
+        self.save_duplicates_settings()
+        self.update_config(window_geometry=self.geometry())
+        self.destroy()
 
     def show_page(self, key):
         self.page_frames[key].tkraise()
@@ -508,97 +557,456 @@ class App(tk.Tk):
     # --- Duplicates tab ---
 
     def build_duplicates_tab(self, parent):
+        settings = self.config_data["duplicates"]
         tab = ttk.Frame(parent)
         top = ttk.Frame(tab)
         top.pack(fill="x")
-        self.scan_button = ttk.Button(top, text="Scan for duplicates", command=self.scan_duplicates)
+        self.scan_button = ttk.Button(top, text="Scan", style=theme.accent(), command=self.scan_duplicates)
         self.scan_button.pack(side="left")
-        self.duplicates_summary = ttk.Label(
-            top, text="Finds files with identical content in the sorted folders and their category folders.")
+        self.stop_button = ttk.Button(top, text="Stop", command=self.stop_duplicates_scan, state="disabled")
+        self.stop_button.pack(side="left", padx=6)
+        self.duplicates_summary = ttk.Label(top, text="Choose where to look and how to compare, then click Scan.")
         self.duplicates_summary.pack(side="left", padx=10)
+        self.duplicates_progress = ttk.Progressbar(top, mode="indeterminate", length=theme.px(160))
+
+        options = ttk.Frame(tab)
+        options.pack(fill="x", pady=(theme.px(10), 0))
+        options.columnconfigure(2, weight=1)
+        self.dup_source = tk.StringVar(value=settings["source"])
+        self.dup_folder = tk.StringVar(value=settings["folder"])
+        self.dup_recursive = tk.BooleanVar(value=settings["recursive"])
+        self.dup_check_folder = tk.StringVar(value=settings["check_folder"])
+        self.dup_check_subfolders = tk.BooleanVar(value=settings["check_subfolders"])
+        ttk.Label(options, text="Look in").grid(row=0, column=0, sticky="w", padx=(0, 12))
+        ttk.Radiobutton(options, text="The sorted folders", value="sorted", variable=self.dup_source).grid(
+            row=0, column=1, sticky="w")
+        ttk.Checkbutton(options, text="Include subfolders", variable=self.dup_recursive, style=theme.switch()).grid(
+            row=0, column=3, sticky="e")
+        ttk.Radiobutton(options, text="This folder:", value="folder", variable=self.dup_source).grid(
+            row=1, column=1, sticky="w", pady=(4, 0))
+        folder_row = ttk.Frame(options)
+        folder_row.grid(row=1, column=2, columnspan=2, sticky="ew", pady=(4, 0))
+        folder_entry = ttk.Entry(folder_row, textvariable=self.dup_folder)
+        folder_entry.pack(side="left", fill="x", expand=True)
+        folder_entry.bind("<FocusIn>", lambda _: self.dup_source.set("folder"))
+        ttk.Button(folder_row, text="Browse…", command=self.browse_duplicates_folder).pack(side="left", padx=(6, 0))
+
+        ttk.Label(options, text="Match by").grid(row=2, column=0, sticky="w", padx=(0, 12), pady=(8, 0))
+        self.dup_mode = ttk.Combobox(options, state="readonly", values=list(duplicates.MODES.values()), width=32)
+        self.dup_mode.set(duplicates.MODES.get(settings["mode"], duplicates.MODES["content"]))
+        self.dup_mode.grid(row=2, column=1, columnspan=2, sticky="w", pady=(8, 0))
+
+        ttk.Label(options, text="Show only").grid(row=3, column=0, sticky="w", padx=(0, 12), pady=(8, 0))
+        filters = ttk.Frame(options)
+        filters.grid(row=3, column=1, columnspan=3, sticky="w", pady=(8, 0))
+        self.dup_extension = tk.StringVar(value=settings["extension"])
+        self.dup_name = tk.StringVar(value=settings["name"])
+        self.dup_min_mb = tk.StringVar(value=settings["min_mb"])
+        for label, variable, width in (("Extension", self.dup_extension, 8), ("Name contains", self.dup_name, 22),
+                                       ("At least (MB)", self.dup_min_mb, 7)):
+            ttk.Label(filters, text=label).pack(side="left", padx=(0, 4))
+            entry = ttk.Entry(filters, textvariable=variable, width=width)
+            entry.pack(side="left", padx=(0, 12))
+            entry.bind("<Return>", lambda _: self.apply_duplicates_filter())
+        ttk.Button(filters, text="Apply", command=self.apply_duplicates_filter).pack(side="left")
+        ttk.Button(filters, text="Clear", command=self.clear_duplicates_filter).pack(side="left", padx=6)
+
+        ttk.Label(options, text="Check in").grid(row=4, column=0, sticky="w", padx=(0, 12), pady=(8, 0))
+        check_row = ttk.Frame(options)
+        check_row.grid(row=4, column=1, columnspan=3, sticky="ew", pady=(8, 0))
+        ttk.Button(check_row, text="Check copies in this folder", command=self.check_duplicates_in_folder).pack(
+            side="left")
+        ttk.Entry(check_row, textvariable=self.dup_check_folder).pack(side="left", fill="x", expand=True, padx=6)
+        ttk.Button(check_row, text="Browse…", command=self.browse_check_folder).pack(side="left")
+        ttk.Button(check_row, text="Use scan folder",
+                   command=lambda: self.dup_check_folder.set(self.dup_folder.get())).pack(side="left", padx=6)
+        ttk.Checkbutton(check_row, text="Include subfolders", variable=self.dup_check_subfolders,
+                        style=theme.switch()).pack(side="left")
 
         table = ttk.Frame(tab)
         table.pack(fill="both", expand=True, pady=8)
         self.duplicates_tree = add_scrolled_tree(table, (
-            ("folder", "Folder", 340, "w"), ("size", "Size", 100, "center"), ("action", "Action", 100, "w"),
+            ("size", "Size", 90, "center"), ("modified", "Modified", 140, "center"), ("folder", "Folder", 260, "w"),
+            ("path", "Full path", 420, "w"),
         ), first=("File", 380), selectmode="extended")
-        self.duplicates_tree.tag_configure("keep", foreground="gray")
-        self.duplicate_paths = {}  # row id -> path, for every row
-        self.duplicate_extras = {}  # row id -> path, only rows that will be deleted
-        attach_file_menu(self.duplicates_tree, self.duplicate_paths.get, self.scan_duplicates)
+        self.duplicates_tree.tag_configure("group", foreground=theme.MUTED)
+        self.duplicates_tree.bind("<Button-1>", self.on_duplicates_click)
+        self.duplicates_tree.bind("<space>", lambda _: self.toggle_duplicates(self.duplicates_tree.selection()))
+        self.duplicates_tree.bind("<Button-3>", self.duplicates_popup)
+        self.duplicates_tree.bind("<Double-1>", self.on_duplicates_double_click)
+        self.dup_groups = []  # every group the last scan found, minus files deleted or removed since
+        self.dup_shown = []  # the groups that pass the filter, as listed
+        self.dup_rows = {}  # file row id -> duplicates.Entry
+        self.dup_group_rows = {}  # group row id -> duplicates.Group
+        self.dup_checked = set()  # core.norm(path) of every checked file
+        self.dup_thread = None
+        self.dup_cancel = threading.Event()
+        self.dup_save_job = None
+        for variable in (self.dup_source, self.dup_folder, self.dup_recursive, self.dup_extension, self.dup_name,
+                         self.dup_min_mb, self.dup_check_folder, self.dup_check_subfolders):
+            variable.trace_add("write", lambda *_: self.save_duplicates_settings_soon())
+        self.dup_mode.bind("<<ComboboxSelected>>", lambda _: self.save_duplicates_settings_soon())
 
         bottom = ttk.Frame(tab)
         bottom.pack(fill="x")
-        ttk.Button(bottom, text="Keep selected", command=self.keep_selected_duplicates).pack(side="left")
-        ttk.Label(bottom, text="One copy of each file is always kept. Deleted copies go to the Recycle Bin "
-                  "and can be brought back from History.", foreground="gray").pack(side="left", padx=8)
+        check = ttk.Menubutton(bottom, text="Check…")
+        menu = tk.Menu(check, tearoff=0)
+        theme.style_menu(menu)
+        check["menu"] = menu
+        for label, command in (
+                ("Check all", lambda: self.check_duplicates_by(lambda files: files)),
+                ("Uncheck all", lambda: self.check_duplicates_by(lambda files: [])),
+                ("Invert", self.invert_duplicates),
+                (None, None),
+                ("All but the first in each group", lambda: self.check_duplicates_by(lambda files: files[1:])),
+                ("All but the newest in each group", lambda: self.check_duplicates_by(
+                    lambda files: sorted(files, key=lambda e: e.modified, reverse=True)[1:])),
+                ("The biggest in each group", lambda: self.check_duplicates_by(
+                    lambda files: [e for e in files if e.size == max(f.size for f in files)])),
+                ("The smallest in each group", lambda: self.check_duplicates_by(
+                    lambda files: [e for e in files if e.size == min(f.size for f in files)])),
+                ("Extra copies in the same folder (keep 1 per folder)", self.check_same_folder_duplicates),
+                ('Every copy inside the "Check in" folder', self.check_duplicates_in_folder),
+                (None, None),
+                ("Highlighted rows", lambda: self.set_duplicates_checked(self.duplicates_tree.selection(), True))):
+            if label:
+                menu.add_command(label=label, command=command)
+            else:
+                menu.add_separator()
+        check.pack(side="left")
         self.delete_duplicates_button = ttk.Button(
-            bottom, text="Delete duplicates", command=self.delete_duplicates, state="disabled")
+            bottom, text="Delete checked", command=self.delete_checked_duplicates, state="disabled")
         self.delete_duplicates_button.pack(side="right")
+        ttk.Button(bottom, text="Keep first, delete the rest", command=lambda: self.delete_duplicate_entries(
+            [e for group in self.dup_shown for e in group.files[1:]])).pack(side="right", padx=6)
+        ttk.Button(bottom, text="Keep newest, delete the rest", command=lambda: self.delete_duplicate_entries(
+            [e for group in self.dup_shown
+             for e in sorted(group.files, key=lambda e: e.modified, reverse=True)[1:]])).pack(side="right")
         return tab
 
+    def browse_duplicates_folder(self):
+        folder = filedialog.askdirectory(title="Folder to look for duplicates in",
+                                         initialdir=self.dup_folder.get() or None)
+        if folder:
+            self.dup_folder.set(str(Path(folder)))
+            self.dup_source.set("folder")
+
+    def browse_check_folder(self):
+        folder = filedialog.askdirectory(title="Folder whose copies to check",
+                                         initialdir=self.dup_check_folder.get() or self.dup_folder.get() or None)
+        if folder:
+            self.dup_check_folder.set(str(Path(folder)))
+
+    def duplicates_mode(self):
+        return next(key for key, label in duplicates.MODES.items() if label == self.dup_mode.get())
+
+    def save_duplicates_settings_soon(self):
+        """Save shortly after the last change, not on every key press."""
+        if self.dup_save_job:
+            self.after_cancel(self.dup_save_job)
+        self.dup_save_job = self.after(800, self.save_duplicates_settings)
+
+    def save_duplicates_settings(self):
+        if self.dup_save_job:
+            self.after_cancel(self.dup_save_job)
+            self.dup_save_job = None
+        self.update_config(duplicates={
+            "source": self.dup_source.get(), "folder": self.dup_folder.get().strip().strip('"'),
+            "recursive": self.dup_recursive.get(), "mode": self.duplicates_mode(),
+            "extension": self.dup_extension.get().strip(), "name": self.dup_name.get().strip(),
+            "min_mb": self.dup_min_mb.get().strip(), "check_folder": self.dup_check_folder.get().strip().strip('"'),
+            "check_subfolders": self.dup_check_subfolders.get()})
+
     def scan_duplicates(self):
-        self.scan_button.config(state="disabled")
-        self.duplicates_summary.config(text="Scanning… large files take a while.")
-        result = []
+        if self.dup_thread and self.dup_thread.is_alive():
+            return
+        if self.dup_source.get() == "folder":
+            folder = Path(self.dup_folder.get().strip().strip('"'))
+            if not self.dup_folder.get().strip() or not folder.is_dir():
+                messagebox.showwarning("Duplicates", "Choose the folder to look in first.", parent=self)
+                return
+            folders = [folder]
+        else:
+            folders = duplicates.sorted_folders(self.config_data)
+        self.save_duplicates_settings()
+        mode, recursive = self.duplicates_mode(), self.dup_recursive.get()
+        self.dup_groups = []
+        self.render_duplicates()
+        cancel = self.dup_cancel = threading.Event()
+        state = {"status": "Looking for files…"}
+
+        def work():
+            try:
+                files = duplicates.collect(folders, recursive, cancel)
+                state["status"] = f"Comparing {len(files)} file(s)…"
+                state["groups"] = duplicates.find(files, mode, cancel, lambda text: state.update(status=text))
+            except duplicates.Cancelled:
+                state["cancelled"] = True
+            except Exception as error:  # shown to the user, not lost with the thread
+                state["error"] = error
+
         # Hashing can take long, so it runs off the window's thread.
-        thread = threading.Thread(target=lambda: result.append(core.find_duplicates(self.config_data)), daemon=True)
-        thread.start()
+        self.dup_thread = threading.Thread(target=work, daemon=True)
+        self.dup_thread.start()
+        self.set_duplicates_scanning(True)
 
         def check():
-            if thread.is_alive():
-                self.after(200, check)
+            if self.dup_thread.is_alive():
+                self.duplicates_summary.config(text=state["status"])
+                self.after(150, check)
+                return
+            self.set_duplicates_scanning(False)
+            if "error" in state:
+                self.duplicates_summary.config(text="The scan failed.")
+                messagebox.showerror("Duplicates", f"The scan failed:\n{state['error']}", parent=self)
+            elif "cancelled" in state:
+                self.duplicates_summary.config(text="Scan stopped.")
             else:
-                self.show_duplicates(result[0] if result else [])
+                self.dup_groups = state["groups"]
+                # Identical content is safe to pre-check; files that only look alike are left to the user.
+                self.dup_checked = {core.norm(e.path) for group in self.dup_groups for e in group.files[1:]} \
+                    if mode == "content" else set()
+                self.render_duplicates()
 
         check()
 
-    def show_duplicates(self, groups):
-        self.scan_button.config(state="normal")
-        self.duplicates_tree.delete(*self.duplicates_tree.get_children())
-        self.duplicate_paths.clear()
-        self.duplicate_extras.clear()
-        for group in groups:
-            size = format_size(group[0].stat().st_size) if group[0].exists() else ""
-            for position, path in enumerate(group):
-                row = self.duplicates_tree.insert(
-                    "", "end", tags=() if position else ("keep",), text=path.name,
-                    image=theme.tile(path.suffix.lstrip("."), path.parent.name),
-                    values=(path.parent, size, "Delete" if position else "Keep"))
-                self.duplicate_paths[row] = path
-                if position:
-                    self.duplicate_extras[row] = path
-        self.update_duplicates_summary(len(groups))
+    def stop_duplicates_scan(self):
+        self.dup_cancel.set()
+        self.duplicates_summary.config(text="Stopping…")
 
-    def update_duplicates_summary(self, groups=None):
-        count = len(self.duplicate_extras)
-        try:
-            size = format_size(sum(path.stat().st_size for path in self.duplicate_extras.values()))
-        except OSError:
-            size = "?"
-        if groups is not None and not count:
-            text = "No duplicates found."
+    def set_duplicates_scanning(self, scanning):
+        self.scan_button.config(state="disabled" if scanning else "normal")
+        self.stop_button.config(state="normal" if scanning else "disabled")
+        if scanning:
+            self.duplicates_progress.pack(side="right")
+            self.duplicates_progress.start(12)
         else:
-            text = f"{count} duplicate copy(ies) marked Delete ({size})"
-        self.duplicates_summary.config(text=text)
-        self.delete_duplicates_button.config(
-            text=f"Delete {count} duplicate(s)", state="normal" if count else "disabled")
+            self.duplicates_progress.stop()
+            self.duplicates_progress.pack_forget()
 
-    def keep_selected_duplicates(self):
-        for row in self.duplicates_tree.selection():
-            if self.duplicate_extras.pop(row, None):
-                self.duplicates_tree.set(row, "action", "Keep")
-                self.duplicates_tree.item(row, tags=("keep",))
+    def duplicates_filter(self):
+        extension = duplicates.norm_text(self.dup_extension.get().strip().lstrip("."))
+        needle = duplicates.norm_text(self.dup_name.get().strip())
+        try:
+            min_size = float(self.dup_min_mb.get().strip() or 0) * 1024 * 1024
+        except ValueError:
+            min_size = 0
+        return lambda e: ((not extension or duplicates.norm_text(e.name).endswith("." + extension))
+                          and needle in duplicates.norm_text(e.name) and e.size >= min_size)
+
+    def apply_duplicates_filter(self):
+        self.save_duplicates_settings()
+        self.render_duplicates()
+
+    def clear_duplicates_filter(self):
+        for variable in (self.dup_extension, self.dup_name, self.dup_min_mb):
+            variable.set("")
+        self.apply_duplicates_filter()
+
+    def render_duplicates(self):
+        tree = self.duplicates_tree
+        tree.delete(*tree.get_children())
+        self.dup_rows.clear()
+        self.dup_group_rows.clear()
+        self.dup_shown = []
+        passes = self.duplicates_filter()
+        for group in self.dup_groups:
+            files = [e for e in group.files if passes(e)]
+            if len(files) < 2:
+                continue  # a single file left after filtering is no longer a duplicate
+            shown = duplicates.Group(group.number, files)
+            self.dup_shown.append(shown)
+            same_size = len({e.size for e in files}) == 1
+            parent = tree.insert("", "end", open=True, tags=("group",), text=f"Group {group.number}:  {len(files)} files",
+                                 values=(format_size(files[0].size) if same_size else "", "", "", ""))
+            self.dup_group_rows[parent] = shown
+            for entry in files:
+                row = tree.insert(parent, "end", values=(
+                    format_size(entry.size), time.strftime("%Y-%m-%d %H:%M", time.localtime(entry.modified)),
+                    entry.path.parent, entry.path))
+                self.dup_rows[row] = entry
+                self.paint_duplicate(row)
         self.update_duplicates_summary()
 
-    def delete_duplicates(self):
-        paths = list(self.duplicate_extras.values())
-        if not messagebox.askyesno("Duplicates", f"Send {len(paths)} duplicate file(s) to the Recycle Bin?"):
+    def paint_duplicate(self, row):
+        entry = self.dup_rows[row]
+        checked = core.norm(entry.path) in self.dup_checked
+        image = theme.checkbox(checked)
+        self.duplicates_tree.item(row, image=image,
+                                  text=entry.name if image else f"{'☑' if checked else '☐'}  {entry.name}")
+
+    def checked_duplicates(self):
+        return [e for e in self.dup_rows.values() if core.norm(e.path) in self.dup_checked]
+
+    def update_duplicates_summary(self):
+        if not self.dup_groups:
+            text = "No duplicates found." if self.dup_thread else "Choose where to look and how to compare, then click Scan."
+        elif not self.dup_shown:
+            text = f"{len(self.dup_groups)} group(s) found, but none match the filter."
+        else:
+            files = sum(len(group.files) for group in self.dup_shown)
+            spare = sum(sum(e.size for e in group.files) - max(e.size for e in group.files) for group in self.dup_shown)
+            text = f"{len(self.dup_shown)} group(s), {files} files, up to {format_size(spare)} to free"
+        checked = self.checked_duplicates()
+        if checked:
+            text += f"   ·   {len(checked)} checked ({format_size(sum(e.size for e in checked))})"
+        self.duplicates_summary.config(text=text)
+        self.delete_duplicates_button.config(
+            text=f"Delete {len(checked)} checked" if checked else "Delete checked",
+            state="normal" if checked else "disabled")
+
+    def duplicate_file_rows(self, rows):
+        """File rows for a selection; a group row stands for all of its files."""
+        found = []
+        for row in rows:
+            for file_row in self.duplicates_tree.get_children(row) if row in self.dup_group_rows else [row]:
+                if file_row in self.dup_rows and file_row not in found:
+                    found.append(file_row)
+        return found
+
+    def set_duplicates_checked(self, rows, checked):
+        for row in self.duplicate_file_rows(rows):
+            key = core.norm(self.dup_rows[row].path)
+            if checked:
+                self.dup_checked.add(key)
+            else:
+                self.dup_checked.discard(key)
+            self.paint_duplicate(row)
+        self.update_duplicates_summary()
+
+    def toggle_duplicates(self, rows):
+        """Check them all, or uncheck them all if they already are."""
+        rows = self.duplicate_file_rows(rows)
+        self.set_duplicates_checked(rows, not all(core.norm(self.dup_rows[r].path) in self.dup_checked for r in rows))
+
+    def on_duplicates_click(self, event):
+        tree = self.duplicates_tree
+        row = tree.identify_row(event.y)
+        if row in self.dup_rows and tree.identify_column(event.x) == "#0" and "image" in tree.identify_element(
+                event.x, event.y):
+            self.toggle_duplicates([row])
+            return "break"  # a click on the box only ticks it, the highlight stays as it was
+
+    def on_duplicates_double_click(self, event):
+        """Like the other lists: double-clicking a file shows it in File Explorer.
+        Group rows keep folding open and shut, and the tick box only ticks."""
+        tree = self.duplicates_tree
+        row = tree.identify_row(event.y)
+        if row in self.dup_rows and "image" not in tree.identify_element(event.x, event.y):
+            self.show_duplicate(self.dup_rows[row].path)
+            return "break"
+
+    def check_duplicates_by(self, pick):
+        """Check the files pick(group files) returns in each listed group, and nothing else."""
+        self.dup_checked = {core.norm(e.path) for group in self.dup_shown for e in pick(group.files)}
+        for row in self.dup_rows:
+            self.paint_duplicate(row)
+        self.update_duplicates_summary()
+
+    def invert_duplicates(self):
+        self.check_duplicates_by(lambda files: [e for e in files if core.norm(e.path) not in self.dup_checked])
+
+    def check_same_folder_duplicates(self):
+        def pick(files):
+            first_in_folder = {}
+            for e in files:
+                first_in_folder.setdefault(core.norm(e.path.parent), e)
+            return [e for e in files if first_in_folder[core.norm(e.path.parent)] is not e]
+
+        if not any(pick(group.files) for group in self.dup_shown):
+            messagebox.showinfo("Duplicates", "No group has two copies in the same folder.", parent=self)
             return
-        count, errors = core.delete_files(paths)
+        self.check_duplicates_by(pick)
+
+    def check_duplicates_in_folder(self):
+        folder = (self.dup_check_folder.get() or self.dup_folder.get()).strip().strip('"')
+        if not folder:
+            messagebox.showinfo("Duplicates", 'Enter a folder in "Check in", or click Use scan folder.', parent=self)
+            return
+        if not Path(folder).is_dir():
+            messagebox.showwarning("Duplicates", f"Not a folder:\n{folder}", parent=self)
+            return
+        target, subfolders = core.norm(Path(folder)), self.dup_check_subfolders.get()
+
+        def inside(e):
+            parent = core.norm(e.path.parent)
+            return parent == target or subfolders and parent.startswith(target.rstrip(os.sep) + os.sep)
+
+        if not any(inside(e) for group in self.dup_shown for e in group.files):
+            messagebox.showinfo("Duplicates", f"None of the listed files are in\n{Path(folder)}", parent=self)
+            return
+        self.check_duplicates_by(lambda files: [e for e in files if inside(e)])
+
+    def duplicates_popup(self, event):
+        tree = self.duplicates_tree
+        row = tree.identify_row(event.y)
+        if not row:
+            return
+        if row not in tree.selection():
+            tree.selection_set(row)
+        rows = self.duplicate_file_rows(tree.selection())
+        entries = [self.dup_rows[r] for r in rows]
+        if not entries:
+            return
+        checked = all(core.norm(e.path) in self.dup_checked for e in entries)
+        menu = tk.Menu(tree, tearoff=0)
+        theme.style_menu(menu)
+        menu.add_command(label="Uncheck" if checked else "Check",
+                         command=lambda: self.set_duplicates_checked(rows, not checked))
+        menu.add_separator()
+        menu.add_command(label="Show in File Explorer", command=lambda: self.show_duplicate(entries[0].path))
+        menu.add_command(label="Open / Run", command=lambda: self.open_duplicates(entries))
+        menu.add_separator()
+        menu.add_command(label="Remove from this list (keeps the file)",
+                         command=lambda: self.forget_duplicates({core.norm(e.path) for e in entries}))
+        menu.add_command(label="Delete…", command=lambda: self.delete_duplicate_entries(entries))
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def show_duplicate(self, path):
+        if error := duplicates.reveal(path):
+            messagebox.showwarning("File", error, parent=self)
+
+    def open_duplicates(self, entries):
+        errors = [error for entry in entries if (error := duplicates.open_file(entry.path))]
+        if errors:
+            messagebox.showwarning("Open", "Could not open:\n" + "\n".join(errors[:8]), parent=self)
+
+    def forget_duplicates(self, keys):
+        """Take files off the list (deleted, or the user removed them); groups left with one file go."""
+        for group in self.dup_groups:
+            group.files = [e for e in group.files if core.norm(e.path) not in keys]
+        self.dup_groups = [group for group in self.dup_groups if len(group.files) > 1]
+        self.dup_checked -= keys
+        self.render_duplicates()
+
+    def delete_checked_duplicates(self):
+        self.delete_duplicate_entries(self.checked_duplicates())
+
+    def delete_duplicate_entries(self, entries):
+        if not entries:
+            messagebox.showinfo("Duplicates", "There is nothing to delete. Check one or more files first "
+                                "(click the box next to a file, or use Check…).", parent=self)
+            return
+        doomed = {core.norm(e.path) for e in entries}
+        # Count against the whole group, filtered-out copies included: those would survive.
+        emptied = sum(all(core.norm(e.path) in doomed for e in group.files) for group in self.dup_groups)
+        listing = "\n".join(e.name for e in entries[:12]) + (f"\n… and {len(entries) - 12} more" if len(entries) > 12 else "")
+        warning = (f"\n\nWARNING: in {emptied} group(s) every copy is selected, so no copy of those files "
+                   "will be left." if emptied else "")
+        how = ask_delete_how(self, f"Delete {len(entries)} file(s) ({format_size(sum(e.size for e in entries))})?"
+                             f"\n\n{listing}{warning}")
+        if how is None:
+            return
+        permanent = how == "permanent"
+        if permanent and not messagebox.askyesno(
+                "Delete for good", f"The {len(entries)} file(s) will be gone for good: they won't go to the "
+                "Recycle Bin and History can't bring them back.\n\nDelete them?", icon="warning", parent=self):
+            return
+        count, errors = core.delete_files([e.path for e in entries], permanent=permanent)
+        self.forget_duplicates({core.norm(e.path) for e in entries if not e.path.exists()})
         self.refresh_preview()
-        report_result(self, f"Deleted {count} duplicate(s).", errors)
-        self.scan_duplicates()
+        report_result(self, f"Deleted {count} file(s) for good." if permanent else
+                      f"Sent {count} file(s) to the Recycle Bin. You can bring them back from History.", errors)
 
     # --- History tab ---
 
@@ -645,6 +1053,8 @@ class App(tk.Tk):
                 status = "Moved" if core.is_active(move) else move[2].capitalize()
                 if not core.is_active(move) and move[2] == "deleted":
                     destination = "Recycle Bin"
+                elif not core.is_active(move) and move[2] == "erased":
+                    destination = "Deleted for good"
                 else:
                     destination = Path(move[1]).parent if move[1] else source.parent
                 values = (run["time"], source.parent, destination, status)

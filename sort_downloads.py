@@ -5,7 +5,6 @@ plain scripts and as the packaged DownloadsSorter.exe (see build.py).
 """
 
 import fnmatch
-import hashlib
 import json
 import logging
 import os
@@ -14,7 +13,6 @@ import subprocess
 import sys
 import threading
 import time
-from collections import defaultdict
 from pathlib import Path
 
 APP_NAME = "Downloads Sorter"
@@ -50,6 +48,11 @@ DEFAULT_CONFIG = {
     "ignore": [],  # file names or patterns (*.torrent) that are never moved
     "paused_until": "",  # "YYYY-MM-DD HH:MM"; automatic runs wait until then
     "after_run": "window",  # "window" = report window, "notify" = tray notification only
+    # The Duplicates page. "source": "sorted" = the sorted folders, "folder" = the one below.
+    # "check_folder": the folder "Check copies in folder" looks at; "" = the folder above.
+    "duplicates": {"source": "sorted", "folder": "", "recursive": True, "mode": "content",
+                   "extension": "", "name": "", "min_mb": "", "check_folder": "", "check_subfolders": True},
+    "window_geometry": "",  # the main window's last size and position
     "auto_update": False,  # True = install new versions by itself; False = notify and offer
 }
 # Partial downloads, shortcuts and system files that must never be moved.
@@ -77,6 +80,7 @@ def load_config() -> dict:
         saved.setdefault("folders", [saved.pop("downloads_folder")])
     config.update(saved)
     config["folders"] = config["folders"] or [""]
+    config["duplicates"] = {**DEFAULT_CONFIG["duplicates"], **config["duplicates"]}
     for category in config["categories"]:
         category.setdefault("min_age_days", None)
         category.setdefault("recycle_after_days", 0)
@@ -217,6 +221,7 @@ def move_files(moves: list[dict], review: bool = False) -> tuple[int, list[str]]
 #   "undone"   - moved back to source
 #   "deleted"  - the file (at destination, or at source if destination is "")
 #                was sent to the Recycle Bin
+#   "erased"   - the same, but deleted for good (only on request), so no undo
 #   "restored" - a deleted file that was never moved was brought back to source
 # Nothing is ever removed from the log.
 
@@ -251,7 +256,7 @@ def current_path(move: list) -> Path | None:
     """Where the move's file is now, or None if it is in the Recycle Bin."""
     if is_active(move):
         return Path(move[1])
-    return None if move[2] == "deleted" else Path(move[0])
+    return None if move[2] in ("deleted", "erased") else Path(move[0])
 
 
 def last_active_run() -> dict | None:
@@ -386,23 +391,28 @@ def restore_from_recycle_bin(original: Path) -> None:
     record.unlink(missing_ok=True)
 
 
-def delete_files(paths: list[Path]) -> tuple[int, list[str]]:
-    """Recycle files and log each one so it can be brought back from History."""
+def delete_files(paths: list[Path], permanent: bool = False) -> tuple[int, list[str]]:
+    """Recycle files and log each one so it can be brought back from History.
+
+    permanent=True deletes them for good instead; they are still logged, but
+    nothing can bring them back.
+    """
     history = load_history()
     active = {norm(move[1]): move for run in history for move in run["moves"] if is_active(move)}
     unlogged, errors, count = [], [], 0
     for path in paths:
         try:
-            recycle(path)
+            path.unlink() if permanent else recycle(path)
         except OSError as error:
             errors.append(f"{path.name}: {error}")
             continue
         count += 1
-        log.info("Deleted (Recycle Bin) %s", path)
+        status = "erased" if permanent else "deleted"
+        log.info("Deleted (%s) %s", "permanently" if permanent else "Recycle Bin", path)
         if norm(path) in active:
-            active[norm(path)].append("deleted")
+            active[norm(path)].append(status)
         else:
-            unlogged.append([str(path), "", "deleted"])
+            unlogged.append([str(path), "", status])
     if unlogged:
         history.append({"time": time.strftime(TIME_FORMAT), "moves": unlogged, "review": False})
     save_history(history)
@@ -442,49 +452,6 @@ def cleanup_expired(config: dict) -> int:
     if count:
         save_history(history)
     return count
-
-
-# --- duplicates ---
-
-def file_hash(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as file:
-        while chunk := file.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def find_duplicates(config: dict) -> list[list[Path]]:
-    """Groups of byte-identical files in the sorted folders and their category
-    folders. The first file of each group is the one to keep."""
-    by_size, seen = defaultdict(list), set()
-    for root in watched_folders(config):
-        folders = [root] + [root / category["folder"] for category in config["categories"]]
-        if config["other_folder"]:
-            folders.append(root / config["other_folder"])
-        for folder in folders:
-            if norm(folder) in seen:
-                continue
-            seen.add(norm(folder))
-            try:
-                for item in folder.iterdir():
-                    if item.is_file() and not is_skipped(item) and (size := item.stat().st_size):
-                        by_size[size].append(item)
-            except OSError:
-                continue
-    groups = []
-    for paths in by_size.values():
-        if len(paths) < 2:
-            continue  # a unique size can't have a twin, so it never needs hashing
-        by_hash = defaultdict(list)
-        for path in paths:
-            try:
-                by_hash[file_hash(path)].append(path)
-            except OSError:
-                continue
-        # Keep the shortest name: "report.pdf" rather than "report (1).pdf".
-        groups += [sorted(group, key=lambda p: (len(p.name), norm(p))) for group in by_hash.values() if len(group) > 1]
-    return sorted(groups, key=lambda group: group[0].name.lower())
 
 
 def setup_logging() -> None:

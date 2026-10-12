@@ -173,6 +173,29 @@ def tile(label: str = "", group: str = "", faded: bool = False):
     return _tile_cache[key]
 
 
+def checkbox(checked: bool):
+    """A tick box for list rows. Being an image, a click on it can be told
+    apart from a click on the row's text. Returns "" without Pillow."""
+    if Image is None:
+        return ""
+    key = ("checkbox", checked, scale)
+    if key not in _tile_cache:
+        size, big = px(18), px(18) * 4  # draw 4x and shrink for smooth edges
+        image = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        if checked:
+            draw.rounded_rectangle((0, 0, big - 1, big - 1), radius=big // 5, fill=WARM)
+            draw.line([(big * 0.24, big * 0.52), (big * 0.42, big * 0.70), (big * 0.76, big * 0.31)],
+                      fill="#ffffff", width=max(1, big // 9), joint="curve")
+        else:
+            draw.rounded_rectangle((2, 2, big - 3, big - 3), radius=big // 5, outline=MUTED, width=max(1, big // 14))
+        # Same height as the colour tiles, with a gap on the right before the text.
+        padded = Image.new("RGBA", (size + px(10), px(TILE_SIZE)), (0, 0, 0, 0))
+        padded.paste(image.resize((size, size), Image.LANCZOS), (0, (px(TILE_SIZE) - size) // 2))
+        _tile_cache[key] = ImageTk.PhotoImage(padded)
+    return _tile_cache[key]
+
+
 def app_icon(size: int):
     """The app icon as an image for a label, `size` pixels at 100% scaling ("" without Pillow)."""
     if Image is None or not ICON_FILE.exists():
