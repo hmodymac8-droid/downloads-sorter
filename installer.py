@@ -18,7 +18,7 @@ import theme
 
 # build.py bundles the packaged program folder under "app".
 PAYLOAD = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "app"
-VERSION = "1.0"
+VERSION = core.VERSION
 
 
 def create_shortcut(link: Path, target: Path) -> None:
@@ -102,5 +102,32 @@ class Setup(tk.Tk):
         self.destroy()
 
 
+def silent_update(reopen: bool) -> None:
+    """Replace an existing install without showing a window (the program's own updater
+    runs this as "--update"). Keeps the user's choices: shortcuts and automatic sorting."""
+    core.setup_logging()
+    automatic = core.autostart_enabled() or core.background_pid() is not None
+    desktop = core.desktop_shortcut().exists()
+    # Every running copy keeps the program file locked, so close them all first.
+    core.run_quiet(["taskkill", "/IM", core.EXE_NAME, "/F"])
+    for attempt in range(5):
+        time.sleep(2)
+        try:
+            exe = install(core.INSTALL_DIR, desktop, automatic)
+            break
+        except OSError as error:
+            core.log.warning("Update attempt %d failed: %s", attempt + 1, error)
+    else:
+        core.log.error("Update to %s gave up; the previous version is still installed", VERSION)
+        return
+    core.UPDATE_MARKER.write_text(VERSION)
+    core.log.info("Updated to version %s", VERSION)
+    if reopen:
+        subprocess.Popen([str(exe)], cwd=exe.parent, stdin=subprocess.DEVNULL)
+
+
 if __name__ == "__main__":
-    Setup().mainloop()
+    if "--update" in sys.argv:
+        silent_update(reopen="--reopen" in sys.argv)
+    else:
+        Setup().mainloop()
